@@ -38,8 +38,10 @@ def _read_control(path):
         return {}
 
 
-def _write_data(path, seq, latest_g, trig, starved, mono):
-    line = f"{seq} {latest_g:.6f} {trig} {starved} {mono:.3f}\n".encode()
+def _write_data(path, seq, latest_g, trig, starved, mono, trig_val_g=0.0):
+    # trig_val_g = the disturbance that caused the most recent trigger (>= threshold),
+    # so the GUI reports the value that actually fired, not the settled latest.
+    line = f"{seq} {latest_g:.6f} {trig} {starved} {mono:.3f} {trig_val_g:.6f}\n".encode()
     # world-readable (root writes; unprivileged GUI reads); write+rename = atomic
     tmp = path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
@@ -81,6 +83,7 @@ def main(argv=None):
     baseline = None
     seq = 0
     trig = 0
+    trig_val = 0.0
     latest = 0.0
     last_arm_seq = None
     arm_until = 0.0
@@ -137,9 +140,10 @@ def main(argv=None):
                     latest = math.sqrt(dx * dx + dy * dy + dz * dz)
                     if armed and now >= arm_until and latest >= threshold:
                         trig += 1
+                        trig_val = latest      # the value that actually fired
 
             seq += 1
-            _write_data(args.data, seq, latest, trig, starved, now)
+            _write_data(args.data, seq, latest, trig, starved, now, trig_val)
             time.sleep(0.005)
     finally:
         try:

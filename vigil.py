@@ -375,11 +375,14 @@ class RemoteMotionSensor(threading.Thread):
         while not self._stop.is_set():
             self._write_control()            # keepalive
             seq = latest = trig = starved = None
+            trig_val = 0.0
             try:
                 with open(self._data) as fh:
                     parts = fh.read().split()
                 seq = int(parts[0]); latest = float(parts[1])
                 trig = int(parts[2]); starved = int(parts[3])
+                if len(parts) > 5:               # value that actually fired (>= threshold)
+                    trig_val = float(parts[5])
             except (OSError, ValueError, IndexError):
                 pass
             now = time.monotonic()
@@ -393,7 +396,7 @@ class RemoteMotionSensor(threading.Thread):
                     self.error = None
                 if (self._last_trig is not None and trig > self._last_trig
                         and self.armed):
-                    self.trigger_value = latest
+                    self.trigger_value = trig_val or latest
                     self.triggered.set()
                 self._last_trig = trig
             if now - self._last_change > 3.0:    # helper stopped writing
