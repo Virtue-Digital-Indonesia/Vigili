@@ -85,17 +85,26 @@ def main(argv=None):
     last_arm_seq = None
     arm_until = 0.0
     last_data = time.monotonic()
+    started = time.monotonic()
+    seen_fresh = False       # have we ever seen the GUI keep the control file fresh?
     try:
         while True:
             now = time.monotonic()
             ctrl = _read_control(args.control)
             if ctrl.get("stop"):
                 break
-            # staleness via control-file mtime (wall clock; monotonic can't cross procs)
+            # Exit when the GUI goes away — but tolerate a slow password entry:
+            # only treat staleness as "GUI gone" once we've seen it fresh at least
+            # once; if it never connects within 30s, give up (no rogue root proc).
             try:
-                if time.time() - os.path.getmtime(args.control) > args.stale:
-                    break
+                age = time.time() - os.path.getmtime(args.control)
             except OSError:
+                age = 1e9
+            if age <= args.stale:
+                seen_fresh = True
+            if seen_fresh and age > args.stale:
+                break
+            if not seen_fresh and (now - started) > 30.0:
                 break
 
             armed = bool(ctrl.get("armed"))

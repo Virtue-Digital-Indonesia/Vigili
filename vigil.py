@@ -235,23 +235,28 @@ def launch_motion_helper(control, data):
     detached. Returns (ok, message). The heavy lifting is the one osascript line."""
     helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_helper.py")
     py = sys.executable
-    # start a fresh control file so the helper doesn't immediately see it as stale
     try:
         motion.ensure_config_dir()
+        # clear any stale data file so we can detect the new helper coming up
+        try:
+            os.remove(data)
+        except OSError:
+            pass
         with open(control, "w") as fh:
             json.dump({"armed": False, "threshold_g": 0.06, "arm_grace_s": 4.0,
                        "arm_seq": 0, "stop": False}, fh)
     except OSError as exc:
         return False, f"could not prepare control file: {exc}"
-    inner = (f"nohup {shlex.quote(py)} {shlex.quote(helper)} "
+    # `( … & )` orphans the helper to launchd so it survives; `nohup` fails inside
+    # `do shell script` ("can't detach from console"). </dev/null detaches stdin.
+    inner = (f"( {shlex.quote(py)} {shlex.quote(helper)} "
              f"--control {shlex.quote(control)} --data {shlex.quote(data)} "
-             f">/tmp/vigil_helper.log 2>&1 &")
-    # embed inner into an AppleScript double-quoted string
+             f"</dev/null >/tmp/vigil_helper.log 2>&1 & )")
     osa = ('do shell script "' + inner.replace('\\', '\\\\').replace('"', '\\"')
            + '" with administrator privileges')
     try:
         r = subprocess.run(["/usr/bin/osascript", "-e", osa],
-                           capture_output=True, text=True, timeout=120)
+                           capture_output=True, text=True, timeout=180)
     except Exception as exc:
         return False, f"could not run the password prompt: {exc}"
     if r.returncode != 0:
@@ -259,7 +264,20 @@ def launch_motion_helper(control, data):
         if "User canceled" in msg or "-128" in msg:
             return False, "cancelled"
         return False, msg or "authorization failed"
-    return True, "started"
+    # confirm the helper actually started (it writes the data file within ~0.1s)
+    deadline = time.monotonic() + 4.0
+    while time.monotonic() < deadline:
+        if os.path.exists(data):
+            return True, "started"
+        time.sleep(0.2)
+    tail = ""
+    try:
+        with open("/tmp/vigil_helper.log") as fh:
+            lines = fh.read().strip().splitlines()
+            tail = lines[-1] if lines else ""
+    except OSError:
+        pass
+    return False, f"helper didn't start{(' — ' + tail) if tail else ''}"
 
 
 class RemoteMotionSensor(threading.Thread):
@@ -625,8 +643,6 @@ def run_window(cfg, want_motion, motion_reason):
         @objc.python_method
         def setup(self):
             self.core = VigilCore(cfg, engines, notify=self._notify)
-            self._banner = None
-            self._banner_until = 0.0
             self._nstimer = None
             self._torn = False
             self._last_dark = None
@@ -637,9 +653,13 @@ def run_window(cfg, want_motion, motion_reason):
             self._set_banner(f"{subtitle}: {message}", "warn")
 
         @objc.python_method
-        def _set_banner(self, text, kind="info", secs=5.0):
-            self._banner = (text, kind)
-            self._banner_until = time.monotonic() + secs
+        def _set_banner(self, text, kind="info", secs=None):
+            # event-driven toast in the web UI (replaces the old polled banner)
+            try:
+                self.web.evaluateJavaScript_completionHandler_(
+                    f"showToast({json.dumps(text)},{json.dumps(kind)})", None)
+            except Exception:
+                pass
 
         @objc.python_method
         def _fields_payload(self):
@@ -842,16 +862,20 @@ def run_window(cfg, want_motion, motion_reason):
                 self._apply_theme()
             p_txt, rssi = core.proximity_view()
             pct = 0 if rssi is None else max(0.0, min(100.0, (rssi + 100) / 60.0 * 100))
+            p_warmup = (core.proximity_armed()
+                        and time.monotonic() < core.monitor.warmup_until)
             if not core.monitor.bt_ready:
                 p_tag, p_tk = "Bluetooth off", "err"
             elif not core.proximity_armed():
-                p_tag, p_tk = "Monitoring", "info"
+                p_tag, p_tk = "Disarmed", ""
             elif core.monitor.state == AWAY:
-                p_tag, p_tk = "Away — locked", "info"
+                p_tag, p_tk = "Locked", "info"
+            elif p_warmup or not core.monitor.present_established:
+                p_tag, p_tk = ("Arming…" if p_warmup else "Armed · no signal"), "warn"
             elif not core.monitor.fresh:
-                p_tag, p_tk = "No signal", "warn"
+                p_tag, p_tk = "Armed · no signal", "warn"
             else:
-                p_tag, p_tk = "Present", "ok"
+                p_tag, p_tk = "Armed", "ok"
             devices = [{"uid": u, "name": d["name"], "rssi": d["rssi"]}
                        for u, d in core.resolvable_devices()[:12]]
 
@@ -866,26 +890,30 @@ def run_window(cfg, want_motion, motion_reason):
             thr_mg = cfg["threshold_g"] * 1000 or 1
             m_pct = min(100.0, mg / thr_mg * 50) if m_mode == "ready" else 0
             if m_mode == "enable":
-                m_tag, m_tk = "Off", "info"
+                m_tag, m_tk = "Off", ""
             elif m_mode == "none":
                 m_tag, m_tk = "Unavailable", ""
+            elif core.sensor is not None and core.sensor.is_dead():
+                m_tag, m_tk = "Sensor failed", "err"
             elif core._alarm_engaged():
                 m_tag, m_tk = "ALARM", "err"
             elif core.motion_armed():
                 m_tag, m_tk = "Armed", "ok"
             else:
-                m_tag, m_tk = "Disarmed", "info"
+                m_tag, m_tk = "Disarmed", ""
 
             if core._alarm_engaged():
                 header, hk = "Alarm", "alarm"
-            elif core.proximity_armed() or core.motion_armed():
-                header, hk = "Armed", "armed"
             else:
-                header, hk = "Monitoring", ""
-
-            banner, bk = "", "info"
-            if self._banner and time.monotonic() < self._banner_until:
-                banner, bk = self._banner
+                parts = []
+                if core.proximity_armed():
+                    parts.append("Proximity")
+                if core.motion_armed():
+                    parts.append("Motion")
+                if parts:
+                    header, hk = " + ".join(parts) + " armed", "armed"
+                else:
+                    header, hk = "Monitoring", ""
 
             self._js("vigilTick", {
                 "p": {"armed": core.proximity_armed(), "tagText": p_tag, "tag": p_tk,
@@ -898,7 +926,6 @@ def run_window(cfg, want_motion, motion_reason):
                       "pct": m_pct, "hot": bool(mg >= thr_mg and m_mode == "ready"),
                       "silent": bool(cfg.get("silent_mode"))},
                 "header": header, "headerKind": hk,
-                "banner": banner, "bannerKind": bk,
             })
 
         @objc.python_method

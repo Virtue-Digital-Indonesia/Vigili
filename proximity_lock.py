@@ -263,6 +263,9 @@ class ProximityMonitor(NSObject):
         # exposed for the menu bar / display
         self.smoothed: float | None = None
         self.fresh = False
+        # Only lock once we've actually detected the device since arming — arming
+        # with no signal (device absent/off) must NOT immediately lock.
+        self.present_established = False
         self.last_lock_method: str | None = None
         self.seen_resolvable: dict[str, dict] = {}   # uid -> {name, rssi, t}
         return self
@@ -275,6 +278,7 @@ class ProximityMonitor(NSObject):
         self.away_since = None
         self.locked_latch = False
         self.state = PRESENT
+        self.present_established = False
 
     # -- CBCentralManagerDelegate --
     def centralManagerDidUpdateState_(self, central):
@@ -345,6 +349,8 @@ class ProximityMonitor(NSObject):
         fresh = (self.last_seen is not None
                  and (now - self.last_seen) <= self.cfg["absence_timeout"])
         self.smoothed, self.fresh = smoothed, fresh
+        if fresh:
+            self.present_established = True   # we've actually detected the device
 
         if not self.bt_ready:
             # Can't sense. Default: do nothing (fail-open).
@@ -368,7 +374,10 @@ class ProximityMonitor(NSObject):
                 self.away_since = now
             elapsed = now - self.away_since
             can_lock = now >= self.warmup_until
+            # Never lock unless we actually saw the device present since arming —
+            # arming with no signal must not fire.
             if (self.state == PRESENT and not self.locked_latch
+                    and self.present_established
                     and can_lock and elapsed >= self.cfg["grace_seconds"]):
                 self._go_away(now)
         else:
