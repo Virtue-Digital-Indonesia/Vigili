@@ -68,6 +68,7 @@ DEFAULTS = {
     "silent_mode": False,
     # combined
     "heartbeat_s": 0.5, "link_lock_to_motion": True,
+    "theme": "auto",   # auto | light | dark
 }
 
 # numeric bounds — corrupt/hand-edited values are coerced so a bad config can't
@@ -102,6 +103,8 @@ def _sanitize(cfg: dict) -> dict:
         cfg[key] = int(round(v)) if isinstance(DEFAULTS[key], int) else v
     for key in ("silent_mode", "link_lock_to_motion"):
         cfg[key] = bool(cfg.get(key))
+    if cfg.get("theme") not in ("auto", "light", "dark"):
+        cfg["theme"] = "auto"
     return cfg
 
 
@@ -584,14 +587,7 @@ def run_window(cfg, want_motion, motion_reason):
     SCALE = {"threshold_g": 1000.0}
     base = os.path.dirname(os.path.abspath(__file__))
 
-    def _is_dark():
-        # Default to Carbon's Gray 100 (dark) — the enterprise signature.
-        # VIGIL_THEME=light forces light; =system follows macOS appearance.
-        forced = os.environ.get("VIGIL_THEME", "").lower()
-        if forced in ("dark", "light"):
-            return forced == "dark"
-        if forced != "system":
-            return True
+    def _system_dark():
         try:
             ap = NSApplication.sharedApplication().effectiveAppearance()
             name = ap.bestMatchFromAppearancesWithNames_(
@@ -599,6 +595,16 @@ def run_window(cfg, want_motion, motion_reason):
             return "Dark" in str(name)
         except Exception:
             return True
+
+    def _resolve_theme():
+        # env override (dev) wins, else the saved config; "auto" follows macOS.
+        mode = os.environ.get("VIGIL_THEME", "").lower() or cfg.get("theme", "auto")
+        if mode == "system":
+            mode = "auto"
+        if mode not in ("auto", "light", "dark"):
+            mode = "auto"
+        dark = _system_dark() if mode == "auto" else (mode == "dark")
+        return mode, dark
 
     def _load_html():
         with open(os.path.join(base, "assets", "carbon_ui.html")) as fh:
@@ -623,6 +629,7 @@ def run_window(cfg, want_motion, motion_reason):
             self._banner_until = 0.0
             self._nstimer = None
             self._torn = False
+            self._last_dark = None
             return self
 
         @objc.python_method
@@ -654,12 +661,24 @@ def run_window(cfg, want_motion, motion_reason):
 
         @objc.python_method
         def _push_init(self):
+            mode, dark = _resolve_theme()
+            self._last_dark = dark
             self._js("vigilInit", {
-                "dark": _is_dark(),
+                "theme": {"mode": mode, "dark": dark},
                 "fields": self._fields_payload(),
                 "silent": bool(cfg.get("silent_mode")),
                 "link": bool(cfg.get("link_lock_to_motion")),
             })
+
+        @objc.python_method
+        def _apply_theme(self):
+            mode, dark = _resolve_theme()
+            self._last_dark = dark
+            try:
+                self.web.evaluateJavaScript_completionHandler_(
+                    f"applyTheme({json.dumps(mode)},{str(dark).lower()})", None)
+            except Exception:
+                pass
 
         # WKNavigationDelegate
         def webView_didFinishNavigation_(self, web, nav):
@@ -702,6 +721,12 @@ def run_window(cfg, want_motion, motion_reason):
             elif action == "toggleLink":
                 cfg["link_lock_to_motion"] = not cfg.get("link_lock_to_motion")
                 save_config(cfg)
+            elif action == "setTheme":
+                mode = str(body.get("mode") or "auto")
+                if mode in ("auto", "light", "dark"):
+                    cfg["theme"] = mode
+                    save_config(cfg)
+                    self._apply_theme()
             elif action == "lockNow":
                 self._set_banner(f"Locked via {core.lock_now()}", "ok")
             elif action == "setField":
@@ -811,6 +836,10 @@ def run_window(cfg, want_motion, motion_reason):
         def _tick(self):
             core = self.core
             core.heartbeat_step()
+            # in Auto, follow a macOS light/dark switch made while we're running
+            mode, dark = _resolve_theme()
+            if mode == "auto" and dark != self._last_dark:
+                self._apply_theme()
             p_txt, rssi = core.proximity_view()
             pct = 0 if rssi is None else max(0.0, min(100.0, (rssi + 100) / 60.0 * 100))
             if not core.monitor.bt_ready:
