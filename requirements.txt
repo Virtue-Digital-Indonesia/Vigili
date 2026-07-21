@@ -1,0 +1,12 @@
+# Vigil dependencies (macOS, Apple Silicon)
+# Install into a venv:  python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+
+# --- Part 1: proximity_lock.py ---
+pyobjc-core>=10
+pyobjc-framework-CoreBluetooth>=10
+pyobjc-framework-Quartz>=10        # CGSession dictionary (also used by Part 2)
+
+# --- Part 2: motion_alarm.py ---
+macimu>=0.2.0                       # undocumented Apple-silicon IMU over IOKit HID
+rumps>=0.4.0                        # menu bar app
+pyobjc-framework-Cocoa>=10          # rumps dependency

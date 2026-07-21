@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated / machine-specific build outputs
+Vigil.app/
+assets/Vigil.iconset/
+
+# macOS
+.DS_Store
+
+# Local scratch
+*.log

@@ -1,0 +1,26 @@
+VIGIL — quick start
+===================
+
+1. Double-click "Install Vigil.command".
+   (First time: right-click it, choose Open, then click Open.)
+   Wait for the "Vigil is ready!" message.
+
+2. Double-click "Vigil.app" to start.
+
+WHAT IT DOES
+------------
+• Proximity lock: locks your screen when your phone leaves, unlocks nothing.
+  - Pair your phone in System Settings > Bluetooth first.
+  - In Vigil, pick your phone under "Device", then click "Arm".
+  - Hover any control for a plain-English explanation.
+
+• Motion alarm: sounds a siren if the Mac is moved while armed.
+  - This part needs your password (the motion sensor is protected by macOS).
+  - Start it from Terminal:
+      sudo -E "<this folder>/.venv/bin/python3" "<this folder>/vigil.py"
+
+NOTES
+-----
+• Vigil never unlocks your Mac — macOS doesn't allow apps to do that.
+  Use Touch ID or Apple Watch to unlock quickly.
+• Your settings save automatically and come back next time.

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# Vigil launcher.
+#
+# The simplest path is the COMBINED app (vigil.py): one menu bar, both halves.
+# Run it with sudo -E to enable the motion alarm (proximity works either way).
+#
+# The split mode (separate processes) is kept for when CoreBluetooth won't run
+# under root: proximity as your user + motion under sudo, cooperating via the OS
+# screen-lock state (proximity locks -> motion --arm-on-lock arms; unlock disarms).
+#
+# Usage:
+#   ./vigil              # combined app (sudo -E => both halves)
+#   ./vigil user         # combined app as your user (proximity only, no sudo)
+#   ./vigil split        # split: proximity (your user, bg) + motion alarm (sudo)
+#   ./vigil stop         # stop the background proximity lock from split mode
+#
+# Point PYBIN at the venv you installed requirements.txt into (VIGIL_PY overrides).
+
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYBIN="${VIGIL_PY:-$HERE/.venv/bin/python3}"
+PIDFILE="${TMPDIR:-/tmp}/vigil-proximity.pid"
+
+start_proximity() {
+  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "proximity lock already running (pid $(cat "$PIDFILE"))"
+    return
+  fi
+  "$PYBIN" "$HERE/proximity_lock.py" >>"${TMPDIR:-/tmp}/vigil-proximity.log" 2>&1 &
+  echo $! >"$PIDFILE"
+  echo "proximity lock started (pid $!), logging to ${TMPDIR:-/tmp}/vigil-proximity.log"
+}
+
+stop_proximity() {
+  if [[ -f "$PIDFILE" ]]; then
+    kill "$(cat "$PIDFILE")" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    echo "proximity lock stopped"
+  else
+    echo "no proximity lock pid file"
+  fi
+}
+
+case "${1:-combined}" in
+  combined) exec sudo -E "$PYBIN" "$HERE/vigil.py" ;;
+  user)     exec "$PYBIN" "$HERE/vigil.py" ;;
+  split)
+    start_proximity
+    echo "launching motion alarm (needs sudo; menu bar item will appear)…"
+    exec sudo -E "$PYBIN" "$HERE/motion_alarm.py" --arm-on-lock
+    ;;
+  stop)     stop_proximity ;;
+  *) echo "usage: $0 {combined|user|split|stop}" >&2; exit 1 ;;
+esac

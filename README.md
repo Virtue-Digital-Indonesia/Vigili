@@ -1,0 +1,155 @@
+<div align="center">
+
+<img src="docs/icon.png" width="128" alt="Vigil icon">
+
+# Vigil
+
+**Auto-lock your Mac when you walk away — and sound an alarm if someone moves it.**
+
+A tiny macOS security app for Apple-silicon Macs. Two guards in one:
+
+🔒 **Proximity lock** — locks the screen when your paired phone/AirPods go out of
+Bluetooth range, re-arms when you're back. *It never unlocks (by design).*
+🚨 **Motion alarm** — a menu-bar tripwire that blares a siren if the Mac is
+physically moved while armed, using the built-in accelerometer.
+
+<img src="docs/screenshot-window.png" width="420" alt="Vigil window">
+
+</div>
+
+> ⚠️ **Honest caveats up front.** Vigil leans on macOS internals: a private
+> lock call, CoreBluetooth, and an *undocumented* accelerometer. It works today
+> on an M1 Pro / macOS 27, but a macOS update could break parts of it — those
+> spots are flagged throughout. It only ever **locks**, never unlocks (macOS
+> doesn't allow third-party unlock — see [below](#why-it-cant-auto-unlock)).
+
+---
+
+## Install (no Terminal needed)
+
+1. **Download** this project — green **Code ▸ Download ZIP** button on GitHub —
+   and unzip it. (Or `git clone`.)
+2. Open the `vigili` folder and **double-click `Install Vigil.command`**.
+   - First time only: **right-click it ▸ Open ▸ Open** (it's not from the App
+     Store, so macOS asks once).
+   - It sets up a private Python environment, builds the app + icon, and pops a
+     "Vigil is ready!" dialog. Takes ~1 minute.
+3. **Double-click `Vigil.app`.** Done — the control panel opens.
+
+> Needs Python 3 (macOS ships it, or run `xcode-select --install` once).
+
+---
+
+## Using it
+
+Everything is in one window. **Hover any control for a plain-English tooltip.**
+
+### 🔒 Proximity lock (works right away, no password)
+1. Pair your phone in **System Settings ▸ Bluetooth** first — that's what lets
+   macOS recognize it (Bluetooth devices hide behind rotating addresses; pairing
+   de-anonymizes yours).
+2. In Vigil, pick your phone from the **Device** dropdown.
+3. Click **Arm**. It now locks the screen when you leave and re-arms when you're
+   back. The **Signal** meter shows your phone's live signal.
+
+**Tuning (do a walk test):** watch the **Signal** number, walk to the spot where
+you want it to lock, note the value there, and set:
+- **Away (dBm)** — lock when the signal drops to this or **weaker** (more
+  negative = farther). Set it a few dB above your "lock here" reading.
+- **Present (dBm)** — after a lock, count you as "back" when the signal recovers
+  to this or **stronger**. Keep it clearly stronger (less negative) than Away —
+  the gap between the two stops it flickering.
+- **Grace (s)** — how long the signal must stay "away" before locking. Ignores
+  brief Bluetooth dips so it won't lock while you're sitting there.
+
+> 💡 Bluetooth signal is noisy and dips even while you're at the desk. Don't set
+> Away off a single reading — do the walk test.
+
+### 🚨 Motion alarm (needs your password)
+The accelerometer is root-only on macOS, so the motion half needs the app run
+with admin rights. Launch it from Terminal when you want it:
+```bash
+sudo -E "/path/to/vigili/.venv/bin/python3" "/path/to/vigili/vigil.py"
+```
+Then **Arm** the motion alarm. Moving the Mac past the **Threshold (mg)** starts
+a siren; it auto-disarms when you unlock the screen, with a **Max alarm (s)**
+safety cap. **Silent mode** shows an on-screen alert instead of the siren (great
+for testing). **Test alarm** fires a 3-second check.
+
+> Threshold guide: ~**60 mg** = a firm nudge, ~**200 mg** = a real shove.
+
+### 🔗 Tie them together
+Turn on **Lock ⇒ arm motion**: when the screen locks (e.g. the proximity lock
+fires), the motion alarm auto-arms; unlocking auto-disarms it.
+
+### 💾 Settings
+Everything auto-saves to `~/.config/vigil/vigil.json` and loads on launch. The
+**Settings** row adds explicit **Save**, **Export…** (back up to a file), and
+**Import…** (load a file — bad values fall back to safe defaults).
+
+---
+
+## Why it can't auto-unlock
+
+A few people ask. **macOS deliberately blocks any third-party app from unlocking
+the login window** — there's no API to dismiss it, and it won't accept
+synthesized keystrokes (it runs in a separate security context). The only
+sanctioned proximity-unlock is Apple's **Auto Unlock with Apple Watch**
+(System Settings ▸ Touch ID & Password). Faking it (storing your password +
+auto-typing it) is both blocked *and* a security hole, so Vigil stays lock-only.
+Use **Touch ID** or **Apple Watch** for fast re-entry.
+
+---
+
+## How it works (and what could break)
+
+| Part | Mechanism | Fragility |
+|---|---|---|
+| Lock | Private `SACLockScreenImmediate()` in `login.framework` (the classic `CGSession` binary is gone on modern macOS) | Undocumented symbol; falls back to screen-saver / display-sleep if it ever vanishes |
+| Proximity | **CoreBluetooth** passive scan — pairing lets macOS resolve the device by name with a live dBm RSSI | Needs the app's **Bluetooth** permission (macOS prompts once) |
+| Motion | [`macimu`](https://pypi.org/project/macimu/) reads the undocumented SPU accelerometer (`AppleSPUHIDDevice`, Bosch IMU) over IOKit HID — **M1 Pro/Max/Ultra and later only**, not base M1 | 100% private API; a macOS report-layout change makes it inert. Fails **visibly** ("SENSOR FAILED"), never silently |
+
+Live values refresh **even while a menu or field is open** (Vigil schedules its
+timer in `NSRunLoopCommonModes`, which normal menu-bar apps don't).
+
+---
+
+## For developers / power users
+
+```bash
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+
+./.venv/bin/python3 vigil.py             # window GUI (proximity)
+sudo -E ./.venv/bin/python3 vigil.py     # window GUI, both halves
+./.venv/bin/python3 vigil.py --menubar   # menu-bar app instead of a window
+```
+
+Architecture: one shared `VigilCore` (UI-agnostic logic) with two thin front
+ends (AppKit window + rumps menu bar). The two halves are also runnable as
+standalone tools:
+
+```
+vigil.py              Combined app (window + menu bar) — start here
+proximity_lock.py     Standalone CoreBluetooth proximity lock  (--menubar, --scan, --calibrate, --monitor)
+motion_alarm.py       Standalone accelerometer siren (menu bar) (--check, --silent, --arm-on-lock)
+tools/make_icon.py    Regenerates the app icon
+tools/build_app.sh    Builds Vigil.app
+Install Vigil.command Non-technical one-click setup
+```
+
+Config lives in `~/.config/vigil/` (written owner-only, `0600`; owned by your
+real user even under sudo). A corrupt config self-heals to safe defaults.
+
+**Note on app identity:** because it runs on the framework Python, the macOS
+menu-bar *name* may read "Python"; the window, Dock icon, and behavior are Vigil.
+A fully-branded bundle would need `py2app` (out of scope).
+
+---
+
+## Requirements
+- Apple-silicon Mac (proximity: any; **motion: M1 Pro/Max/Ultra or later**)
+- macOS 12+ (developed/verified on macOS 27)
+- Python 3
+
+## License
+MIT — see [LICENSE](LICENSE).
