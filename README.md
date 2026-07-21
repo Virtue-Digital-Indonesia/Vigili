@@ -65,16 +65,20 @@ you want it to lock, note the value there, and set:
 > 💡 Bluetooth signal is noisy and dips even while you're at the desk. Don't set
 > Away off a single reading — do the walk test.
 
-### 🚨 Motion alarm (needs your password)
-The accelerometer is root-only on macOS, so the motion half needs the app run
-with admin rights. Launch it from Terminal when you want it:
-```bash
-sudo -E "/path/to/vigili/.venv/bin/python3" "/path/to/vigili/vigil.py"
-```
-Then **Arm** the motion alarm. Moving the Mac past the **Threshold (mg)** starts
-a siren; it auto-disarms when you unlock the screen, with a **Max alarm (s)**
-safety cap. **Silent mode** shows an on-screen alert instead of the siren (great
-for testing). **Test alarm** fires a 3-second check.
+### 🚨 Motion alarm (one click + your password)
+The accelerometer is root-only on macOS, so in the Motion Alarm section click
+**Enable…**. macOS shows its standard **password / Touch ID** prompt once, and
+Vigil starts a tiny background helper that reads *only* the sensor as root — the
+app itself stays unprivileged (so Bluetooth keeps working). Then **Arm** it.
+
+Moving the Mac past the **Threshold (mg)** starts a siren; it auto-disarms when
+you unlock the screen, with a **Max alarm (s)** safety cap. **Silent mode** shows
+an on-screen alert instead of the siren (great for testing). **Test alarm** fires
+a 3-second check.
+
+> The helper stops itself the moment Vigil quits — it never lingers as a rogue
+> root process. Prefer the old way? `sudo -E .venv/bin/python3 vigil.py` still
+> works and skips the helper.
 
 > Threshold guide: ~**60 mg** = a firm nudge, ~**200 mg** = a real shove.
 
@@ -132,6 +136,7 @@ standalone tools:
 vigil.py              Combined app (window + menu bar) — start here
 proximity_lock.py     Standalone CoreBluetooth proximity lock  (--menubar, --scan, --calibrate, --monitor)
 motion_alarm.py       Standalone accelerometer siren (menu bar) (--check, --silent, --arm-on-lock)
+motion_helper.py      Tiny root-only sensor helper the GUI launches via the admin prompt
 tools/make_icon.py    Regenerates the app icon
 tools/build_app.sh    Builds Vigil.app
 Install Vigil.command Non-technical one-click setup

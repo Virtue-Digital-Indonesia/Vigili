@@ -393,6 +393,10 @@ class MotionSensor(threading.Thread):
         if self.is_alive() and threading.current_thread() is not self:
             self.join(timeout=2)
 
+    def is_dead(self):
+        """True if the reader thread has exited (uniform with RemoteMotionSensor)."""
+        return not self.is_alive()
+
     def run(self):
         rate = self._cfg["sample_rate"]
         # EMA smoothing factor from time constant: alpha = dt/tau, dt=1/rate

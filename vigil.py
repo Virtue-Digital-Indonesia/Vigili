@@ -33,8 +33,11 @@ import argparse
 import json
 import math
 import os
+import shlex
 import signal
+import subprocess
 import sys
+import threading
 import time
 
 import objc
@@ -217,6 +220,134 @@ def _setup_engines(cfg, want_motion, motion_reason):
             "want_motion": want_motion, "motion_reason": motion_reason}
 
 
+# ---- privileged motion helper (GUI stays unprivileged) ----------------------
+
+def helper_paths():
+    d = os.path.dirname(config_path())
+    return os.path.join(d, "motion.ctrl"), os.path.join(d, "motion.dat")
+
+
+def launch_motion_helper(control, data):
+    """Prompt for admin (password / Touch ID) and start motion_helper.py as root,
+    detached. Returns (ok, message). The heavy lifting is the one osascript line."""
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_helper.py")
+    py = sys.executable
+    # start a fresh control file so the helper doesn't immediately see it as stale
+    try:
+        motion.ensure_config_dir()
+        with open(control, "w") as fh:
+            json.dump({"armed": False, "threshold_g": 0.06, "arm_grace_s": 4.0,
+                       "arm_seq": 0, "stop": False}, fh)
+    except OSError as exc:
+        return False, f"could not prepare control file: {exc}"
+    inner = (f"nohup {shlex.quote(py)} {shlex.quote(helper)} "
+             f"--control {shlex.quote(control)} --data {shlex.quote(data)} "
+             f">/tmp/vigil_helper.log 2>&1 &")
+    # embed inner into an AppleScript double-quoted string
+    osa = ('do shell script "' + inner.replace('\\', '\\\\').replace('"', '\\"')
+           + '" with administrator privileges')
+    try:
+        r = subprocess.run(["/usr/bin/osascript", "-e", osa],
+                           capture_output=True, text=True, timeout=120)
+    except Exception as exc:
+        return False, f"could not run the password prompt: {exc}"
+    if r.returncode != 0:
+        msg = (r.stderr or "").strip()
+        if "User canceled" in msg or "-128" in msg:
+            return False, "cancelled"
+        return False, msg or "authorization failed"
+    return True, "started"
+
+
+class RemoteMotionSensor(threading.Thread):
+    """Drop-in for MotionSensor that sources data from the root helper's files.
+
+    Same interface VigilCore uses: arm/disarm/stop, armed, latest_disturbance,
+    trigger_value, triggered, sample_starved, error, is_alive, is_dead.
+    """
+
+    def __init__(self, cfg, control_path, data_path):
+        super().__init__(daemon=True)
+        self._cfg = cfg
+        self._control = control_path
+        self._data = data_path
+        self._stop = threading.Event()
+        self.armed = False
+        self.latest_disturbance = 0.0
+        self.trigger_value = 0.0
+        self.triggered = threading.Event()
+        self.sample_starved = False
+        self.error = None
+        self._dead = False
+        self._arm_seq = 0
+        self._last_trig = None
+        self._last_seq = None
+        self._last_change = time.monotonic()
+
+    def _write_control(self):
+        payload = {"armed": self.armed, "threshold_g": self._cfg["threshold_g"],
+                   "arm_grace_s": self._cfg["arm_grace_s"], "arm_seq": self._arm_seq,
+                   "stop": self._stop.is_set()}
+        try:
+            tmp = self._control + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, self._control)   # refreshes mtime = keepalive to helper
+        except OSError as exc:
+            self.error = f"control write failed: {exc}"
+
+    def arm(self):
+        self._arm_seq += 1
+        self.triggered.clear()
+        self.armed = True
+        self._write_control()
+
+    def disarm(self):
+        self.armed = False
+        self.triggered.clear()
+        self._write_control()
+
+    def stop(self):
+        self._stop.set()
+        self._write_control()                # ask the root helper to exit
+        if self.is_alive() and threading.current_thread() is not self:
+            self.join(timeout=2)
+
+    def is_dead(self):
+        return self._dead
+
+    def run(self):
+        self._write_control()
+        while not self._stop.is_set():
+            self._write_control()            # keepalive
+            seq = latest = trig = starved = None
+            try:
+                with open(self._data) as fh:
+                    parts = fh.read().split()
+                seq = int(parts[0]); latest = float(parts[1])
+                trig = int(parts[2]); starved = int(parts[3])
+            except (OSError, ValueError, IndexError):
+                pass
+            now = time.monotonic()
+            if seq is not None:
+                self.latest_disturbance = latest
+                self.sample_starved = bool(starved)
+                if seq != self._last_seq:
+                    self._last_seq = seq
+                    self._last_change = now
+                    self._dead = False
+                    self.error = None
+                if (self._last_trig is not None and trig > self._last_trig
+                        and self.armed):
+                    self.trigger_value = latest
+                    self.triggered.set()
+                self._last_trig = trig
+            if now - self._last_change > 3.0:    # helper stopped writing
+                self._dead = True
+                self.error = "motion helper not responding"
+            self._stop.wait(0.4)
+
+
 # ---- shared logic (UI-agnostic) --------------------------------------------
 
 class VigilCore:
@@ -242,6 +373,20 @@ class VigilCore:
         self._torn_down = False
         if self.sensor:
             self.sensor.start()
+
+    def enable_remote_motion(self):
+        """Wire up a RemoteMotionSensor + alarm after the root helper is running.
+        Lets the (unprivileged) app gain the motion alarm without a restart."""
+        if self.sensor is not None:
+            return
+        control, data = helper_paths()
+        self.sensor = RemoteMotionSensor(self.cfg, control, data)
+        siren = ensure_siren(os.path.join(
+            os.path.dirname(motion.config_path()), "siren.wav"))
+        self.alarm = AlarmPlayer(siren)
+        self.want_motion = True
+        self.motion_reason = ""
+        self.sensor.start()
 
     # -- proximity --
     def has_device(self):
@@ -361,12 +506,12 @@ class VigilCore:
 
             self.motion_peak = max(self.motion_peak * 0.9,
                                    self.sensor.latest_disturbance)
-            if (not self.sensor.is_alive() and self.sensor.armed
+            if (self.sensor.is_dead() and self.sensor.armed
                     and not self._sensor_fail_alerted):
                 self._sensor_fail_alerted = True
                 self.notify("Vigil", "Motion sensor stopped",
                             "NOT protected — motion detection failed.")
-            elif self.sensor.is_alive() and not self.sensor.error:
+            elif not self.sensor.is_dead():
                 self._sensor_fail_alerted = False
         return now
 
@@ -390,7 +535,7 @@ class VigilCore:
         if not s:
             return self.motion_reason or "unavailable", 0.0
         mg = s.latest_disturbance * 1000
-        if s.error or not s.is_alive():
+        if s.is_dead():
             return "SENSOR FAILED", mg
         if s.sample_starved and s.armed:
             return "NO SENSOR DATA", mg
@@ -532,12 +677,21 @@ def run_window(cfg, want_motion, motion_reason):
 
             # ---- motion ----
             y = self._section("MOTION ALARM", y)
-            self.m_btn = self._button("Arm", 16, y, 90, b"toggleMotion:", TIP["arm_m"])
-            if not engines["want_motion"]:
+            self._can_enable_motion = (not engines["want_motion"]
+                                       and engines["motion_reason"] == "needs sudo -E (root)")
+            if engines["want_motion"]:
+                self.m_btn = self._button("Arm", 16, y, 96, b"toggleMotion:", TIP["arm_m"])
+                m_state0 = "disarmed"
+            elif self._can_enable_motion:
+                self.m_btn = self._button("Enable…", 16, y, 96, b"enableMotion:",
+                    "Turn on the motion alarm. macOS asks for your password or "
+                    "Touch ID once, then it runs a tiny background helper.")
+                m_state0 = "click Enable (asks for password)"
+            else:
+                self.m_btn = self._button("Arm", 16, y, 96, b"toggleMotion:", TIP["arm_m"])
                 self.m_btn.setEnabled_(False)
-            self.m_state = self._label(
-                "disarmed" if engines["want_motion"] else engines["motion_reason"],
-                116, y + 3, W - 132)
+                m_state0 = engines["motion_reason"]
+            self.m_state = self._label(m_state0, 122, y + 3, W - 138)
             y += 34
             self._label("Motion", 16, y + 2, 60)
             self.m_meter = self._meter(80, y, 240, TIP["motion"])
@@ -724,6 +878,22 @@ def run_window(cfg, want_motion, motion_reason):
                 self.core.disarm_motion()
             else:
                 self.core.arm_motion()
+
+        def enableMotion_(self, _):
+            control, data = helper_paths()
+            self._set_banner("requesting permission…")
+            ok, msg = launch_motion_helper(control, data)
+            if not ok:
+                self._set_banner("cancelled" if msg == "cancelled" else f"⚠️ {msg}")
+                return
+            self.core.enable_remote_motion()
+            self.m_btn.setTitle_("Arm")
+            self.m_btn.setAction_(b"toggleMotion:")
+            self.m_btn.setToolTip_(
+                "Start/stop the motion tripwire (root helper is running).")
+            self.silent_chk.setEnabled_(True)
+            self.test_btn.setEnabled_(True)
+            self._set_banner("✓ motion alarm enabled — click Arm")
 
         def toggleSilent_(self, sender):
             self.core.toggle_silent()

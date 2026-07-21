@@ -15,9 +15,9 @@ WHAT IT DOES
   - Hover any control for a plain-English explanation.
 
 • Motion alarm: sounds a siren if the Mac is moved while armed.
-  - This part needs your password (the motion sensor is protected by macOS).
-  - Start it from Terminal:
-      sudo -E "<this folder>/.venv/bin/python3" "<this folder>/vigil.py"
+  - In the "Motion Alarm" section, click "Enable...".
+  - macOS asks for your password (or Touch ID) once, then it's ready.
+  - Click "Arm". (The helper stops itself when you quit Vigil.)
 
 NOTES
 -----
