@@ -1,0 +1,321 @@
+<style>
+/* fonts injected by the app */
+__FONTS__
+
+:root{
+  /* Carbon Gray 100 (dark) tokens */
+  --bg:#161616; --layer:#262626; --layer2:#393939; --field:#393939;
+  --border-sub:#393939; --border-strong:#6f6f6f;
+  --text:#f4f4f4; --text-2:#c6c6c6; --text-help:#8d8d8d; --text-place:#6f6f6f;
+  --link:#78a9ff; --primary:#0f62fe; --primary-h:#0353e9; --primary-a:#002d9c;
+  --on-color:#ffffff;
+  --err:#fa4d56; --ok:#42be65; --warn:#f1c21b; --info:#4589ff;
+  --focus:#ffffff;
+}
+:root[data-theme="light"]{
+  --bg:#ffffff; --layer:#f4f4f4; --layer2:#e8e8e8; --field:#f4f4f4;
+  --border-sub:#e0e0e0; --border-strong:#8d8d8d;
+  --text:#161616; --text-2:#525252; --text-help:#6f6f6f; --text-place:#a8a8a8;
+  --link:#0f62fe; --primary:#0f62fe; --primary-h:#0353e9; --primary-a:#002d9c;
+  --on-color:#ffffff;
+  --err:#da1e28; --ok:#24a148; --warn:#f1c21b; --info:#0043ce;
+  --focus:#0f62fe;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;overflow-x:hidden;}
+body{
+  font-family:"IBM Plex Sans",system-ui,sans-serif;
+  background:var(--bg); color:var(--text);
+  font-size:14px; line-height:1.43; letter-spacing:.16px;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+/* ── UI shell header ── */
+.header{
+  height:48px; display:flex; align-items:center; gap:12px;
+  padding:0 16px; background:var(--bg); border-bottom:1px solid var(--border-sub);
+  position:sticky; top:0; z-index:5;
+}
+.header .mark{width:20px;height:20px;flex:0 0 auto;}
+.header .name{font-weight:600; font-size:14px; letter-spacing:.1px;}
+.header .name b{font-weight:600;} .header .name span{color:var(--text-help); font-weight:400;}
+.header .spacer{flex:1;}
+.hstat{font-size:12px; color:var(--text-2); letter-spacing:.32px; text-transform:uppercase; display:flex; align-items:center; gap:8px;}
+.hstat .dot{width:8px;height:8px;border-radius:50%;background:var(--text-help);}
+.hstat.armed .dot{background:var(--ok);}
+.hstat.alarm .dot{background:var(--err); animation:blink 1s steps(1) infinite;}
+@keyframes blink{50%{opacity:.25;}}
+
+/* ── layout ── */
+.wrap{padding:16px; max-width:980px; margin:0 auto;}
+.grid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1px; background:var(--border-sub);}
+.grid>.card{margin:0;}
+@media (max-width:680px){ .grid{grid-template-columns:1fr;} }
+
+/* ── banner (Carbon inline notification) ── */
+.banner{
+  display:none; align-items:flex-start; gap:12px;
+  background:var(--layer); border-left:3px solid var(--info);
+  padding:12px 16px; margin-bottom:1px; font-size:13px; color:var(--text);
+}
+.banner.show{display:flex;}
+.banner.warn{border-left-color:var(--warn);}
+.banner.err{border-left-color:var(--err);}
+.banner.ok{border-left-color:var(--ok);}
+
+/* ── card ── */
+.card{background:var(--layer); padding:20px;}
+.card .chead{display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;}
+.card h2{font-size:16px; font-weight:600; margin:0; letter-spacing:0;}
+.card .sub{font-size:12px; color:var(--text-help); margin:-10px 0 16px;}
+
+/* ── tag ── */
+.tag{
+  font-size:12px; font-weight:400; padding:3px 10px; border-radius:12px;
+  background:var(--layer2); color:var(--text-2); white-space:nowrap; letter-spacing:.16px;
+}
+.tag.ok{background:rgba(66,190,101,.18); color:#6fdc8c;}
+.tag.info{background:rgba(69,137,255,.18); color:#a6c8ff;}
+.tag.err{background:rgba(250,77,86,.2); color:#ff8389;}
+.tag.warn{background:rgba(241,194,27,.2); color:#f1c21b;}
+:root[data-theme="light"] .tag.ok{color:#0e6027;}
+:root[data-theme="light"] .tag.info{color:#0043ce;}
+:root[data-theme="light"] .tag.err{color:#a2191f;}
+
+/* ── button (Carbon: square, left-weighted, no radius) ── */
+.btn{
+  font-family:inherit; font-size:14px; letter-spacing:.16px; font-weight:400;
+  border:1px solid transparent; border-radius:0; cursor:pointer;
+  min-height:48px; padding:13px 60px 13px 16px; text-align:left; position:relative;
+  color:var(--on-color); background:var(--primary); transition:background .11s;
+  -webkit-appearance:none; width:100%;
+}
+.btn:hover{background:var(--primary-h);}
+.btn:active{background:var(--primary-a);}
+.btn:focus-visible{outline:2px solid var(--focus); outline-offset:-4px;}
+.btn.btn-secondary{background:var(--layer2); color:var(--text);}
+.btn.btn-secondary:hover{background:var(--border-strong);}
+.btn.btn-tertiary{background:transparent; border:1px solid var(--primary); color:var(--link);}
+.btn.btn-tertiary:hover{background:var(--primary); color:var(--on-color);}
+.btn.btn-danger{background:var(--err); color:#fff;}
+.btn.small{min-height:40px; padding:9px 16px; width:auto; text-align:center;}
+.btn.wauto{width:auto; padding-right:16px; text-align:center;}
+.btn[disabled]{background:var(--layer2); color:var(--text-place); cursor:not-allowed;}
+
+/* ── meter (Carbon-ish) ── */
+.meter{margin:18px 0 4px;}
+.meter .top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+.meter .lab{font-size:12px; color:var(--text-2); letter-spacing:.32px;}
+.meter .val{font-size:13px; color:var(--text);}
+.meter .track{height:6px; background:var(--layer2); overflow:hidden;}
+.meter .fill{height:100%; width:0%; background:var(--primary); transition:width .25s ease, background .2s;}
+.meter .fill.hot{background:var(--err);}
+.meter .fill.good{background:var(--ok);}
+
+/* ── field (Carbon text input) ── */
+.fields{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:18px;}
+.f{display:flex; flex-direction:column;}
+.f.full{grid-column:1 / -1;}
+.f label{font-size:12px; color:var(--text-2); letter-spacing:.32px; margin-bottom:6px;}
+.f .inp{display:flex; align-items:center; background:var(--field); border-bottom:1px solid var(--border-strong);}
+.f input{
+  flex:1; background:transparent; border:0; color:var(--text);
+  font-family:"IBM Plex Sans",sans-serif; font-size:14px; letter-spacing:.16px;
+  height:40px; padding:0 12px 0 16px; min-width:0;
+  font-variant-numeric:tabular-nums;
+}
+.f input:focus{outline:none;}
+.f .inp:focus-within{outline:2px solid var(--primary); outline-offset:-2px;}
+.f .unit{font-size:13px; color:var(--text-help); padding:0 14px 0 0;}
+.f input:disabled{color:var(--text-place);}
+.f .help{font-size:11px; color:var(--text-help); margin-top:6px; letter-spacing:.32px;}
+
+/* ── select (Carbon dropdown) ── */
+.f select{
+  -webkit-appearance:none; appearance:none; width:100%;
+  background:var(--field); color:var(--text); border:0; border-bottom:1px solid var(--border-strong);
+  height:40px; padding:0 40px 0 16px; font-family:inherit; font-size:14px; border-radius:0;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path fill='%238d8d8d' d='M8 11L3 6h10z'/></svg>");
+  background-repeat:no-repeat; background-position:right 12px center;
+}
+.f select:focus{outline:2px solid var(--primary); outline-offset:-2px;}
+
+/* ── toggle (Carbon) ── */
+.row{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px;}
+.toggle{display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none;}
+.toggle input{position:absolute; opacity:0; width:0; height:0;}
+.toggle .track{width:48px; height:24px; background:var(--border-strong); border-radius:12px; position:relative; transition:background .1s; flex:0 0 auto;}
+.toggle .track::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:var(--on-color); transition:transform .1s;}
+.toggle input:checked + .track{background:var(--primary);}
+.toggle input:checked + .track::after{transform:translateX(24px);}
+.toggle input:focus-visible + .track{outline:2px solid var(--focus); outline-offset:2px;}
+.toggle .tlab{font-size:14px; color:var(--text);}
+
+/* ── footer bar ── */
+.footbar{display:flex; gap:1px; background:var(--border-sub);}
+.footbar .btn{flex:1; width:auto; min-height:56px; text-align:center; padding-left:16px; padding-right:16px;}
+
+.mutehint{font-size:12px; color:var(--text-help); margin-top:8px; letter-spacing:.16px;}
+a{color:var(--link);}
+</style>
+
+<div class="header">
+  <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5l-8-3z" fill="#0f62fe"/><path d="M12 8.4a2.1 2.1 0 0 0-1 3.95V15h2v-2.65A2.1 2.1 0 0 0 12 8.4z" fill="#fff"/></svg>
+  <div class="name"><b>Vigil</b> <span>security</span></div>
+  <div class="spacer"></div>
+  <div id="hstat" class="hstat"><span class="dot"></span><span id="hstat_t">Monitoring</span></div>
+</div>
+
+<div class="wrap">
+  <div id="banner" class="banner"></div>
+
+  <div class="grid">
+    <!-- Proximity -->
+    <section class="card">
+      <div class="chead"><h2>Proximity lock</h2><span id="p_tag" class="tag info">—</span></div>
+      <div class="sub">Locks the screen when your phone leaves. Never unlocks.</div>
+      <button id="p_btn" class="btn btn-primary" onclick="post('toggleProximity')">Arm</button>
+      <div class="meter">
+        <div class="top"><span class="lab">SIGNAL</span><span id="p_rssi" class="val mono">—</span></div>
+        <div class="track"><div id="p_meter" class="fill"></div></div>
+      </div>
+      <div class="fields">
+        <div class="f full">
+          <label>Device</label>
+          <select id="p_device" onchange="post('pickDevice',{uid:this.value})" title="The paired Bluetooth device Vigil tracks. Pair your phone in System Settings first."></select>
+        </div>
+        <div class="f">
+          <label>Away threshold</label>
+          <div class="inp"><input id="f_away_rssi" data-key="away_rssi" inputmode="decimal"><span class="unit">dBm</span></div>
+          <span class="help">Lock at this signal or weaker</span>
+        </div>
+        <div class="f">
+          <label>Present threshold</label>
+          <div class="inp"><input id="f_present_rssi" data-key="present_rssi" inputmode="decimal"><span class="unit">dBm</span></div>
+          <span class="help">Re-arm at this or stronger</span>
+        </div>
+        <div class="f">
+          <label>Grace</label>
+          <div class="inp"><input id="f_grace_seconds" data-key="grace_seconds" inputmode="decimal"><span class="unit">s</span></div>
+          <span class="help">Ignore brief dips</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Motion -->
+    <section class="card">
+      <div class="chead"><h2>Motion alarm</h2><span id="m_tag" class="tag">—</span></div>
+      <div class="sub">Sounds a siren if the Mac is physically moved.</div>
+      <button id="m_btn" class="btn btn-primary" onclick="motionAction()">Arm</button>
+      <div id="m_hint" class="mutehint"></div>
+      <div class="meter">
+        <div class="top"><span class="lab">MOVEMENT</span><span id="m_mg" class="val mono">—</span></div>
+        <div class="track"><div id="m_meter" class="fill"></div></div>
+      </div>
+      <div class="fields" id="m_fields">
+        <div class="f">
+          <label>Sensitivity</label>
+          <div class="inp"><input id="f_threshold_g" data-key="threshold_g" data-scale="1000" inputmode="decimal"><span class="unit">mg</span></div>
+          <span class="help">~60 nudge · ~200 shove</span>
+        </div>
+        <div class="f">
+          <label>Max alarm</label>
+          <div class="inp"><input id="f_max_alarm_s" data-key="max_alarm_s" inputmode="decimal"><span class="unit">s</span></div>
+          <span class="help">Safety cap</span>
+        </div>
+        <div class="f full">
+          <label>Arm grace</label>
+          <div class="inp"><input id="f_arm_grace_s" data-key="arm_grace_s" inputmode="decimal"><span class="unit">s</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <label class="toggle"><input id="silent" type="checkbox" onchange="post('toggleSilent')"><span class="track"></span><span class="tlab">Silent mode</span></label>
+        <button class="btn btn-tertiary wauto" onclick="post('testAlarm')">Test alarm</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- General -->
+  <section class="card" style="margin-top:1px;">
+    <div class="chead"><h2>General</h2></div>
+    <div class="row" style="margin-top:0;">
+      <label class="toggle" title="When the screen locks, automatically arm the motion alarm; disarm when you unlock."><input id="link" type="checkbox" onchange="post('toggleLink')"><span class="track"></span><span class="tlab">Lock &rarr; arm motion</span></label>
+      <div class="f" style="width:150px;">
+        <label>Refresh rate</label>
+        <div class="inp"><input id="f_heartbeat_s" data-key="heartbeat_s" inputmode="decimal"><span class="unit">s</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footbar" style="margin-top:1px;">
+    <button class="btn btn-secondary" onclick="post('save')">Save</button>
+    <button class="btn btn-secondary" onclick="post('export')">Export</button>
+    <button class="btn btn-secondary" onclick="post('import')">Import</button>
+    <button class="btn btn-tertiary" onclick="post('lockNow')">Lock screen now</button>
+    <button class="btn btn-danger" onclick="post('quit')">Quit</button>
+  </div>
+</div>
+
+<script>
+function post(action, extra){ try{ window.webkit.messageHandlers.vigil.postMessage(Object.assign({action:action}, extra||{})); }catch(e){} }
+function $(id){ return document.getElementById(id); }
+function setTag(el, text, kind){ el.textContent=text; el.className="tag "+(kind||""); }
+
+let MOTION_MODE="none";
+function motionAction(){ if(MOTION_MODE==="enable"){ post('enableMotion'); } else if(MOTION_MODE==="ready"){ post('toggleMotion'); } }
+
+// commit fields on Enter / blur
+document.querySelectorAll('input[data-key]').forEach(function(inp){
+  function commit(){ post('setField',{key:inp.dataset.key, value:inp.value}); }
+  inp.addEventListener('change', commit);
+  inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ inp.blur(); } });
+});
+
+window.vigilInit = function(c){
+  document.documentElement.setAttribute('data-theme', c.dark ? 'dark':'light');
+  for(var k in c.fields){ var el=$('f_'+k); if(el) el.value=c.fields[k]; }
+  $('silent').checked=!!c.silent; $('link').checked=!!c.link;
+};
+window.vigilField = function(key, value){ var el=$('f_'+key); if(el) el.value=value; };
+
+let _devKey="";
+function updateDevices(devs, sel){
+  var key=devs.map(function(d){return d.uid;}).join('|');
+  var s=$('p_device');
+  if(key!==_devKey){
+    _devKey=key; s.innerHTML="";
+    if(!devs.length){ var o=document.createElement('option'); o.textContent="(scanning…)"; o.value=""; s.appendChild(o); }
+    devs.forEach(function(d){ var o=document.createElement('option'); o.value=d.uid; o.textContent=d.name+"  ("+d.rssi+" dBm)"; s.appendChild(o); });
+  }
+  if(sel){ for(var i=0;i<s.options.length;i++){ if(s.options[i].value===sel){ s.selectedIndex=i; break; } } }
+}
+
+window.vigilTick = function(s){
+  // proximity
+  setTag($('p_tag'), s.p.tagText, s.p.tag);
+  var pb=$('p_btn'); pb.textContent=s.p.armed?'Disarm':'Arm';
+  pb.className='btn '+(s.p.armed?'btn-secondary':'btn-primary');
+  $('p_rssi').textContent=s.p.rssi;
+  var pm=$('p_meter'); pm.style.width=s.p.pct+'%'; pm.className='fill'+(s.p.pct>=66?' good':'');
+  updateDevices(s.p.devices||[], s.p.device);
+
+  // motion
+  MOTION_MODE=s.m.mode;
+  setTag($('m_tag'), s.m.tagText, s.m.tag);
+  var mb=$('m_btn');
+  if(s.m.mode==='enable'){ mb.textContent='Enable motion alarm'; mb.className='btn btn-primary'; mb.disabled=false; $('m_hint').textContent='Asks for your password or Touch ID once.'; }
+  else if(s.m.mode==='ready'){ mb.textContent=s.m.armed?'Disarm':'Arm'; mb.className='btn '+(s.m.armed?'btn-secondary':'btn-primary'); mb.disabled=false; $('m_hint').textContent=''; }
+  else { mb.textContent='Arm'; mb.className='btn'; mb.disabled=true; $('m_hint').textContent=s.m.reason||''; }
+  var en=(s.m.mode==='ready');
+  $('silent').disabled=!en; $('f_threshold_g').disabled=!en; $('f_max_alarm_s').disabled=!en; $('f_arm_grace_s').disabled=!en;
+  $('m_mg').textContent=s.m.mg;
+  var mm=$('m_meter'); mm.style.width=s.m.pct+'%'; mm.className='fill'+(s.m.hot?' hot':'');
+  if(typeof s.m.silent!=='undefined') $('silent').checked=s.m.silent;
+
+  // header + banner
+  var h=$('hstat'); h.className='hstat '+(s.headerKind||''); $('hstat_t').textContent=s.header;
+  var b=$('banner');
+  if(s.banner){ b.textContent=s.banner; b.className='banner show '+(s.bannerKind||''); } else { b.className='banner'; }
+};
+</script>

@@ -10,3 +10,4 @@ pyobjc-framework-Quartz>=10        # CGSession dictionary (also used by Part 2)
 macimu>=0.2.0                       # undocumented Apple-silicon IMU over IOKit HID
 rumps>=0.4.0                        # menu bar app
 pyobjc-framework-Cocoa>=10          # rumps dependency
+pyobjc-framework-WebKit>=10        # Carbon UI in a WKWebView

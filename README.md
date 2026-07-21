@@ -128,9 +128,14 @@ sudo -E ./.venv/bin/python3 vigil.py     # window GUI, both halves
 ./.venv/bin/python3 vigil.py --menubar   # menu-bar app instead of a window
 ```
 
+The window is an **IBM Carbon** UI (IBM Plex, Blue 60, square controls) rendered
+in a **WKWebView** — dark by default; `VIGIL_THEME=light` / `=system` to change.
+If you run it with your own `python` (not the venv), install the extra dep once:
+`pip install pyobjc-framework-WebKit` (the installer already does this).
+
 Architecture: one shared `VigilCore` (UI-agnostic logic) with two thin front
-ends (AppKit window + rumps menu bar). The two halves are also runnable as
-standalone tools:
+ends — a Carbon WKWebView window (JS ↔ Python bridge) + a rumps menu bar. The two
+halves are also runnable as standalone tools:
 
 ```
 vigil.py              Combined app (window + menu bar) — start here

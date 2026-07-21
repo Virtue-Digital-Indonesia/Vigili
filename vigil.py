@@ -563,489 +563,341 @@ class VigilCore:
 # ---- window GUI front end ---------------------------------------------------
 
 def run_window(cfg, want_motion, motion_reason):
-    from AppKit import (NSApplication, NSWindow, NSView, NSTextField, NSButton,
-                        NSPopUpButton, NSLevelIndicator, NSFont, NSColor, NSBox,
-                        NSSavePanel, NSOpenPanel,
+    """Carbon-styled UI rendered in a WKWebView; logic stays in VigilCore."""
+    from AppKit import (NSApplication, NSWindow, NSImage, NSMenu, NSMenuItem,
+                        NSColor, NSSavePanel, NSOpenPanel,
                         NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
-                        NSWindowStyleMaskMiniaturizable, NSBackingStoreBuffered,
-                        NSApplicationActivationPolicyRegular, NSButtonTypeSwitch,
-                        NSBezelStyleRounded, NSLevelIndicatorStyleContinuousCapacity,
-                        NSTextAlignmentRight)
+                        NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskResizable,
+                        NSBackingStoreBuffered, NSApplicationActivationPolicyRegular,
+                        NSViewWidthSizable, NSViewHeightSizable)
+    from Foundation import NSBundle
+    try:
+        from WebKit import (WKWebView, WKWebViewConfiguration,
+                            WKUserContentController)
+    except ImportError:
+        sys.exit("Vigil's window needs pyobjc-framework-WebKit.\n"
+                 "  pip install pyobjc-framework-WebKit\n"
+                 "(or run the venv python / re-run 'Install Vigil.command', "
+                 "or use --menubar).")
 
     engines = _setup_engines(cfg, want_motion, motion_reason)
+    SCALE = {"threshold_g": 1000.0}
+    base = os.path.dirname(os.path.abspath(__file__))
 
-    class _Flipped(NSView):
-        def isFlipped(self):
+    def _is_dark():
+        # Default to Carbon's Gray 100 (dark) — the enterprise signature.
+        # VIGIL_THEME=light forces light; =system follows macOS appearance.
+        forced = os.environ.get("VIGIL_THEME", "").lower()
+        if forced in ("dark", "light"):
+            return forced == "dark"
+        if forced != "system":
+            return True
+        try:
+            ap = NSApplication.sharedApplication().effectiveAppearance()
+            name = ap.bestMatchFromAppearancesWithNames_(
+                ["NSAppearanceNameAqua", "NSAppearanceNameDarkAqua"])
+            return "Dark" in str(name)
+        except Exception:
             return True
 
-    class VigilWindow(NSObject):
-        # -- build --
+    def _load_html():
+        with open(os.path.join(base, "assets", "carbon_ui.html")) as fh:
+            html = fh.read()
+        faces = ""
+        try:
+            with open(os.path.join(base, "assets", "fonts", "plex_b64.json")) as fh:
+                for key, b64 in json.load(fh).items():
+                    fam, wt = key.split("|")
+                    faces += (f"@font-face{{font-family:'{fam}';font-style:normal;"
+                              f"font-weight:{wt};font-display:swap;"
+                              f"src:url(data:font/woff2;base64,{b64}) format('woff2');}}\n")
+        except (OSError, ValueError):
+            pass
+        return html.replace("__FONTS__", faces)
+
+    class Bridge(NSObject):
         @objc.python_method
-        def build(self):
-            def banner(title, sub, msg):   # non-blocking notification
-                self._set_banner(f"⚠️ {sub}: {msg}")
-            self.core = VigilCore(cfg, engines, notify=banner)
-            self.fields = {}               # NSTextField -> (key,)
-            self._dev_names = None
-            self._dev_uids = {}
-
-            W, H = 470, 726
-            style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-                     | NSWindowStyleMaskMiniaturizable)
-            self.win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                NSMakeRect(0, 0, W, H), style, NSBackingStoreBuffered, False)
-            self.win.setTitle_("Vigil")
-            self.win.setReleasedWhenClosed_(False)
-            self.win.setDelegate_(self)
-            content = _Flipped.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
-            self.win.setContentView_(content)
-            self._content = content
-            self._W = W
-
-            TIP = {
-                "arm_p": "Start/stop locking the screen when your phone leaves. "
-                         "Armed = it will lock when you walk away. It never unlocks.",
-                "signal": "Live Bluetooth signal from your phone. Fuller bar = closer. "
-                          "Watch this while you do a walk test.",
-                "device": "The paired Bluetooth device Vigil tracks. Pair your phone in "
-                          "System Settings ▸ Bluetooth first, then pick it here.",
-                "away": "Lock when the signal drops to this level or WEAKER (more "
-                        "negative = farther). Walk to your 'lock here' spot, read the "
-                        "signal there, set this a few dB above it.",
-                "present": "After a lock, count you as 'back' when the signal recovers "
-                           "to this or STRONGER. Must be less negative than Away — the "
-                           "gap between the two prevents flicker.",
-                "grace": "Seconds the signal must stay 'away' before locking. Ignores "
-                         "brief Bluetooth dips so it won't lock while you're sitting there.",
-                "arm_m": "Start/stop the motion tripwire. Needs the app run with a "
-                         "password (see Read Me).",
-                "motion": "Live movement in mg (thousandths of g). Spikes when the Mac "
-                          "is moved.",
-                "thresh": "How hard a movement triggers the alarm. Lower = more "
-                          "sensitive. ~60 mg = a firm nudge; ~200 mg = a real shove.",
-                "maxalarm": "Safety cap — the siren stops after this many seconds even "
-                            "if still armed.",
-                "armgrace": "Ignore movement for this many seconds right after arming, "
-                            "so setting the Mac down doesn't set it off.",
-                "silent": "Test mode: show an on-screen alert instead of playing the "
-                          "loud siren.",
-                "test": "Fire a short 3-second alarm to check it works.",
-                "link": "When the screen locks (e.g. the proximity lock fires), "
-                        "automatically arm the motion alarm; disarm when you unlock.",
-                "heartbeat": "How often Vigil re-checks and refreshes the display. "
-                             "Lower = snappier, uses a little more power.",
-                "save": "Save current settings now (also commits the field you're "
-                        "editing). Settings also save automatically on every change.",
-                "export": "Save your settings to a file you can back up or copy to "
-                          "another Mac.",
-                "import": "Load settings from a file you exported earlier.",
-                "locknow": "Lock the screen right now (a quick test).",
-                "quit": "Quit Vigil.",
-            }
-
-            y = 14
-            self.header = self._label("Vigil", 16, y, W - 32, bold=True, size=20)
-            y += 28
-            self._label("Auto-locks when you leave · alarms if the Mac is moved · "
-                        "hover any control for help", 16, y, W - 32, size=11)
-            y += 20
-            self.banner = self._label("", 16, y, W - 32, size=11)
-            y += 20
-
-            # ---- proximity ----
-            y = self._section("PROXIMITY LOCK", y)
-            self.p_btn = self._button("Arm", 16, y, 90, b"toggleProximity:", TIP["arm_p"])
-            self.p_state = self._label("disarmed", 116, y + 3, W - 132)
-            y += 34
-            self._label("Signal", 16, y + 2, 60)
-            self.p_meter = self._meter(80, y, 240, TIP["signal"])
-            self.p_rssi = self._label("--", 330, y + 2, W - 346)
-            y += 30
-            self._label("Device", 16, y + 3, 60)
-            self.dev_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
-                NSMakeRect(80, y, W - 96, 26), False)
-            self.dev_popup.setTarget_(self)
-            self.dev_popup.setAction_(b"deviceChanged:")
-            self.dev_popup.setToolTip_(TIP["device"])
-            self._content.addSubview_(self.dev_popup)
-            y += 34
-            self._field_row("Away (dBm)", "away_rssi", 16, y, W, tip=TIP["away"])
-            self._field_row("Present (dBm)", "present_rssi", 245, y, W, x2=True, tip=TIP["present"])
-            y += 30
-            self._field_row("Grace (s)", "grace_seconds", 16, y, W, tip=TIP["grace"])
-            y += 36
-
-            # ---- motion ----
-            y = self._section("MOTION ALARM", y)
-            self._can_enable_motion = (not engines["want_motion"]
-                                       and engines["motion_reason"] == "needs sudo -E (root)")
-            if engines["want_motion"]:
-                self.m_btn = self._button("Arm", 16, y, 96, b"toggleMotion:", TIP["arm_m"])
-                m_state0 = "disarmed"
-            elif self._can_enable_motion:
-                self.m_btn = self._button("Enable…", 16, y, 96, b"enableMotion:",
-                    "Turn on the motion alarm. macOS asks for your password or "
-                    "Touch ID once, then it runs a tiny background helper.")
-                m_state0 = "click Enable (asks for password)"
-            else:
-                self.m_btn = self._button("Arm", 16, y, 96, b"toggleMotion:", TIP["arm_m"])
-                self.m_btn.setEnabled_(False)
-                m_state0 = engines["motion_reason"]
-            self.m_state = self._label(m_state0, 122, y + 3, W - 138)
-            y += 34
-            self._label("Motion", 16, y + 2, 60)
-            self.m_meter = self._meter(80, y, 240, TIP["motion"])
-            self.m_mg = self._label("--", 330, y + 2, W - 346)
-            y += 30
-            # THE requested input — motion threshold, visible + editable
-            self._field_row("Threshold (mg)", "threshold_g", 16, y, W, scale=1000.0, tip=TIP["thresh"])
-            y += 30
-            self._field_row("Max alarm (s)", "max_alarm_s", 16, y, W, tip=TIP["maxalarm"])
-            self._field_row("Arm grace (s)", "arm_grace_s", 245, y, W, x2=True, tip=TIP["armgrace"])
-            y += 32
-            self.silent_chk = self._check("Silent mode (no siren)", 16, y,
-                                          200, b"toggleSilent:", cfg["silent_mode"], TIP["silent"])
-            self.test_btn = self._button("Test alarm", 250, y - 4, 110, b"testAlarm:", TIP["test"])
-            if not engines["want_motion"]:
-                self.silent_chk.setEnabled_(False)
-                self.test_btn.setEnabled_(False)
-            y += 36
-
-            # ---- general ----
-            y = self._section("GENERAL", y)
-            self.link_chk = self._check("Lock ⇒ arm motion", 16, y, 200,
-                                        b"toggleLink:", cfg["link_lock_to_motion"], TIP["link"])
-            y += 28
-            self._field_row("Heartbeat (s)", "heartbeat_s", 16, y, W, tip=TIP["heartbeat"])
-            y += 36
-            y = self._section("SETTINGS", y)
-            self._button("Save settings", 16, y, 130, b"saveSettings:", TIP["save"])
-            self._button("Export…", 152, y, 100, b"exportSettings:", TIP["export"])
-            self._button("Import…", 258, y, 100, b"importSettings:", TIP["import"])
-            y += 40
-            self._button("Lock screen now", 16, y, 150, b"lockNow:", TIP["locknow"])
-            self._button("Quit", W - 96, y, 80, b"quitApp:", TIP["quit"])
-
-            self.win.center()
-            self.win.makeKeyAndOrderFront_(None)
-            self.win.makeFirstResponder_(None)   # don't let a field grab focus on open
-            self._refresh_device_popup()
-            self._refresh()
-
-            hb = min(5.0, max(0.1, float(cfg["heartbeat_s"])))
-            self._ticker = _Ticker.alloc().init().configure(self._tick)
-            self._nstimer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
-                hb, self._ticker, b"fire:", None, True)
-            NSRunLoop.currentRunLoop().addTimer_forMode_(
-                self._nstimer, NSRunLoopCommonModes)
+        def setup(self):
+            self.core = VigilCore(cfg, engines, notify=self._notify)
+            self._banner = None
+            self._banner_until = 0.0
+            self._nstimer = None
+            self._torn = False
             return self
 
-        # -- widget helpers --
         @objc.python_method
-        def _label(self, text, x, y, w, bold=False, size=13, right=False):
-            f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, y, w, 20))
-            f.setStringValue_(text)
-            f.setBezeled_(False)
-            f.setDrawsBackground_(False)
-            f.setEditable_(False)
-            f.setSelectable_(False)
-            f.setFont_(NSFont.boldSystemFontOfSize_(size) if bold
-                       else NSFont.systemFontOfSize_(size))
-            self._content.addSubview_(f)
-            return f
+        def _notify(self, title, subtitle, message):
+            self._set_banner(f"{subtitle}: {message}", "warn")
 
         @objc.python_method
-        def _section(self, title, y):
-            self._label(title, 16, y, self._W - 32, bold=True, size=11)
-            return y + 22
+        def _set_banner(self, text, kind="info", secs=5.0):
+            self._banner = (text, kind)
+            self._banner_until = time.monotonic() + secs
 
         @objc.python_method
-        def _button(self, title, x, y, w, action, tip=None):
-            b = NSButton.alloc().initWithFrame_(NSMakeRect(x, y, w, 26))
-            b.setTitle_(title)
-            b.setBezelStyle_(NSBezelStyleRounded)
-            b.setTarget_(self)
-            b.setAction_(action)
-            if tip:
-                b.setToolTip_(tip)
-            self._content.addSubview_(b)
-            return b
+        def _fields_payload(self):
+            return {
+                "away_rssi": cfg["away_rssi"], "present_rssi": cfg["present_rssi"],
+                "grace_seconds": cfg["grace_seconds"],
+                "threshold_g": round(cfg["threshold_g"] * 1000),
+                "max_alarm_s": cfg["max_alarm_s"], "arm_grace_s": cfg["arm_grace_s"],
+                "heartbeat_s": cfg["heartbeat_s"],
+            }
 
         @objc.python_method
-        def _check(self, title, x, y, w, action, state, tip=None):
-            b = NSButton.alloc().initWithFrame_(NSMakeRect(x, y, w, 22))
-            b.setButtonType_(NSButtonTypeSwitch)
-            b.setTitle_(title)
-            b.setState_(1 if state else 0)
-            b.setTarget_(self)
-            b.setAction_(action)
-            if tip:
-                b.setToolTip_(tip)
-            self._content.addSubview_(b)
-            return b
+        def _js(self, fn, arg):
+            try:
+                self.web.evaluateJavaScript_completionHandler_(
+                    f"{fn}({json.dumps(arg)})", None)
+            except Exception:
+                pass
 
         @objc.python_method
-        def _meter(self, x, y, w, tip=None):
-            lv = NSLevelIndicator.alloc().initWithFrame_(NSMakeRect(x, y, w, 20))
-            lv.setLevelIndicatorStyle_(NSLevelIndicatorStyleContinuousCapacity)
-            lv.setMinValue_(0.0)
-            lv.setMaxValue_(100.0)
-            if tip:
-                lv.setToolTip_(tip)
-            self._content.addSubview_(lv)
-            return lv
+        def _push_init(self):
+            self._js("vigilInit", {
+                "dark": _is_dark(),
+                "fields": self._fields_payload(),
+                "silent": bool(cfg.get("silent_mode")),
+                "link": bool(cfg.get("link_lock_to_motion")),
+            })
 
-        @objc.python_method
-        def _field_row(self, label, key, x, y, W, x2=False, scale=1.0, tip=None):
-            lbl = self._label(label, x, y + 3, 120)
-            fx = x + 120
-            fw = 80
-            tf = NSTextField.alloc().initWithFrame_(NSMakeRect(fx, y, fw, 22))
-            shown = cfg[key] * scale
-            tf.setStringValue_(f"{shown:g}")
-            tf.setDelegate_(self)
-            if tip:
-                tf.setToolTip_(tip)
-                lbl.setToolTip_(tip)
-            self._content.addSubview_(tf)
-            self.fields[tf] = (key, scale)
-            return tf
+        # WKNavigationDelegate
+        def webView_didFinishNavigation_(self, web, nav):
+            self._push_init()
 
-        @objc.python_method
-        def _set_banner(self, text):
-            if hasattr(self, "banner"):
-                self.banner.setStringValue_(text)
-
-        # -- NSTextField delegate: commit on Enter / focus-loss --
-        def controlTextDidEndEditing_(self, note):
-            tf = note.object()
-            spec = self.fields.get(tf)
-            if not spec:
+        # WKScriptMessageHandler
+        def userContentController_didReceiveScriptMessage_(self, ucc, message):
+            body = message.body()
+            try:
+                action = str(body["action"])
+            except Exception:
                 return
-            key, scale = spec
-            raw = tf.stringValue().strip()
+            self._handle(action, body)
+
+        @objc.python_method
+        def _handle(self, action, body):
+            core = self.core
+            if action == "toggleProximity":
+                if core.proximity_armed():
+                    core.disarm_proximity()
+                    self._set_banner("Proximity lock disarmed")
+                elif not core.has_device():
+                    self._set_banner("Pick a device first", "warn")
+                elif core.arm_proximity():
+                    self._set_banner("Proximity lock armed")
+            elif action == "pickDevice":
+                uid = str(body.get("uid") or "")
+                for u, d in core.resolvable_devices():
+                    if u == uid:
+                        core.pick_device(u, d["name"])
+                        break
+            elif action == "toggleMotion":
+                core.disarm_motion() if core.motion_armed() else core.arm_motion()
+            elif action == "enableMotion":
+                self._enable_motion()
+            elif action == "testAlarm":
+                core.test_alarm()
+            elif action == "toggleSilent":
+                core.toggle_silent()
+            elif action == "toggleLink":
+                cfg["link_lock_to_motion"] = not cfg.get("link_lock_to_motion")
+                save_config(cfg)
+            elif action == "lockNow":
+                self._set_banner(f"Locked via {core.lock_now()}", "ok")
+            elif action == "setField":
+                self._set_field(str(body.get("key")), body.get("value"))
+            elif action == "save":
+                save_config(cfg)
+                self._set_banner("Settings saved", "ok")
+            elif action == "export":
+                self._export()
+            elif action == "import":
+                self._import()
+            elif action == "quit":
+                self._quit()
+
+        @objc.python_method
+        def _reset_field(self, key):
+            scale = SCALE.get(key, 1.0)
+            shown = round(cfg[key] * scale) if scale != 1.0 else cfg[key]
+            self._js2("vigilField", json.dumps(key), json.dumps(shown))
+
+        @objc.python_method
+        def _js2(self, fn, a, b):
+            try:
+                self.web.evaluateJavaScript_completionHandler_(f"{fn}({a},{b})", None)
+            except Exception:
+                pass
+
+        @objc.python_method
+        def _set_field(self, key, raw):
+            if key not in _NUM_BOUNDS:
+                return
+            scale = SCALE.get(key, 1.0)
             try:
                 entered = float(raw) / scale
-            except ValueError:
-                tf.setStringValue_(f"{cfg[key] * scale:g}")
-                self._set_banner("⚠️ not a number — kept previous value")
+            except (TypeError, ValueError):
+                self._reset_field(key)
                 return
             ok, val = clamp_num(key, entered, cfg)
             if not ok:
+                self._reset_field(key)
                 lo, hi = _NUM_BOUNDS[key]
-                tf.setStringValue_(f"{cfg[key] * scale:g}")
-                self._set_banner(f"⚠️ {key} must be {lo*scale:g}…{hi*scale:g} — kept previous")
+                self._set_banner(f"{key} must be {lo*scale:g}…{hi*scale:g}", "warn")
                 return
             self.core.set_value(key, val)
-            tf.setStringValue_(f"{val * scale:g}")
-            self._set_banner("")
             if key == "heartbeat_s":
                 self._reschedule(val)
 
         @objc.python_method
-        def _reschedule(self, hb):
-            if getattr(self, "_nstimer", None) is not None:
-                self._nstimer.invalidate()
-            hb = min(5.0, max(0.1, float(hb)))
-            self._ticker = _Ticker.alloc().init().configure(self._tick)
-            self._nstimer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
-                hb, self._ticker, b"fire:", None, True)
-            NSRunLoop.currentRunLoop().addTimer_forMode_(
-                self._nstimer, NSRunLoopCommonModes)
-
-        # -- actions --
-        def toggleProximity_(self, _):
-            if self.core.proximity_armed():
-                self.core.disarm_proximity()
-                self._set_banner("")
-                return
-            # Adopt whatever device the dropdown is showing, so arming "just works"
-            # instead of silently refusing when the popup auto-picked a device the
-            # user never explicitly selected.
-            if not self.core.has_device():
-                title = self.dev_popup.titleOfSelectedItem()
-                uid = self._dev_uids.get(title)
-                if uid:
-                    self.core.pick_device(uid, title)
-            if self.core.arm_proximity():
-                self._set_banner("")
-            else:
-                self._set_banner("⚠️ no device yet — wait for the dropdown to list "
-                                 "your phone, then Arm")
-
-        def toggleMotion_(self, _):
-            if self.core.motion_armed():
-                self.core.disarm_motion()
-            else:
-                self.core.arm_motion()
-
-        def enableMotion_(self, _):
+        def _enable_motion(self):
             control, data = helper_paths()
-            self._set_banner("requesting permission…")
+            self._set_banner("Requesting permission…")
             ok, msg = launch_motion_helper(control, data)
             if not ok:
-                self._set_banner("cancelled" if msg == "cancelled" else f"⚠️ {msg}")
+                self._set_banner("Cancelled" if msg == "cancelled"
+                                 else f"Failed: {msg}", "warn")
                 return
             self.core.enable_remote_motion()
-            self.m_btn.setTitle_("Arm")
-            self.m_btn.setAction_(b"toggleMotion:")
-            self.m_btn.setToolTip_(
-                "Start/stop the motion tripwire (root helper is running).")
-            self.silent_chk.setEnabled_(True)
-            self.test_btn.setEnabled_(True)
-            self._set_banner("✓ motion alarm enabled — click Arm")
+            self._set_banner("Motion alarm enabled — click Arm", "ok")
 
-        def toggleSilent_(self, sender):
-            self.core.toggle_silent()
-            sender.setState_(1 if cfg.get("silent_mode") else 0)
-
-        def toggleLink_(self, sender):
-            cfg["link_lock_to_motion"] = bool(sender.state())
-            save_config(cfg)
-
-        def testAlarm_(self, _):
-            self.core.test_alarm()
-
-        def lockNow_(self, _):
-            method = self.core.lock_now()
-            self._set_banner(f"locked via {method}")
-
-        def saveSettings_(self, _):
-            self.win.makeFirstResponder_(None)   # commit any pending field edit
-            save_config(cfg)
-            self._set_banner(f"✓ settings saved to {config_path()}")
-
-        def exportSettings_(self, _):
-            self.win.makeFirstResponder_(None)
+        @objc.python_method
+        def _export(self):
             panel = NSSavePanel.savePanel()
             panel.setNameFieldStringValue_("vigil-settings.json")
-            if panel.runModal() != 1:            # 1 == NSModalResponseOK
-                return
-            path = panel.URL().path()
-            try:
-                export_config(path, cfg)
-                self._set_banner(f"✓ exported to {os.path.basename(path)}")
-            except OSError as exc:
-                self._set_banner(f"⚠️ export failed: {exc}")
+            if panel.runModal() == 1:
+                try:
+                    export_config(panel.URL().path(), cfg)
+                    self._set_banner("Exported", "ok")
+                except OSError as e:
+                    self._set_banner(f"Export failed: {e}", "err")
 
-        def importSettings_(self, _):
+        @objc.python_method
+        def _import(self):
             panel = NSOpenPanel.openPanel()
             panel.setCanChooseFiles_(True)
             panel.setCanChooseDirectories_(False)
             panel.setAllowsMultipleSelection_(False)
-            if panel.runModal() != 1:
-                return
-            path = panel.URLs()[0].path()
-            try:
-                merged = import_config(path)
-            except (OSError, ValueError) as exc:
-                self._set_banner(f"⚠️ import failed: {exc}")
-                return
-            cfg.clear()
-            cfg.update(merged)          # same dict object the engines share
-            save_config(cfg)
-            self._reload_ui_from_cfg()
-            self._set_banner(f"✓ imported {os.path.basename(path)}")
+            if panel.runModal() == 1:
+                try:
+                    merged = import_config(panel.URLs()[0].path())
+                except (OSError, ValueError) as e:
+                    self._set_banner(f"Import failed: {e}", "err")
+                    return
+                cfg.clear()
+                cfg.update(merged)
+                save_config(cfg)
+                self.core.monitor.samples.clear()
+                self.core.monitor.reset_warmup()
+                self._push_init()
+                self._set_banner("Imported", "ok")
+
+        # heartbeat
+        @objc.python_method
+        def start_timer(self):
+            hb = min(5.0, max(0.1, float(cfg["heartbeat_s"])))
+            self._ticker = _Ticker.alloc().init().configure(self._tick)
+            self._nstimer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+                hb, self._ticker, b"fire:", None, True)
+            NSRunLoop.currentRunLoop().addTimer_forMode_(self._nstimer, NSRunLoopCommonModes)
 
         @objc.python_method
-        def _reload_ui_from_cfg(self):
-            for tf, (key, scale) in self.fields.items():
-                tf.setStringValue_(f"{cfg[key] * scale:g}")
-            self.silent_chk.setState_(1 if cfg.get("silent_mode") else 0)
-            self.link_chk.setState_(1 if cfg.get("link_lock_to_motion") else 0)
-            # let the (possibly new) device re-acquire cleanly
-            self.core.monitor.samples.clear()
-            self.core.monitor.last_seen = time.monotonic()
-            self.core.monitor.reset_warmup()
-            self._dev_names = None       # force popup rebuild + reselect
-            self._refresh_device_popup()
-            self._reschedule(cfg["heartbeat_s"])
-            self._refresh()
+        def _reschedule(self, hb):
+            if self._nstimer is not None:
+                self._nstimer.invalidate()
+            self.start_timer()
 
-        def deviceChanged_(self, popup):
-            title = popup.titleOfSelectedItem()
-            uid = self._dev_uids.get(title)
-            if uid:
-                self.core.pick_device(uid, title)
+        @objc.python_method
+        def _tick(self):
+            core = self.core
+            core.heartbeat_step()
+            p_txt, rssi = core.proximity_view()
+            pct = 0 if rssi is None else max(0.0, min(100.0, (rssi + 100) / 60.0 * 100))
+            if not core.monitor.bt_ready:
+                p_tag, p_tk = "Bluetooth off", "err"
+            elif not core.proximity_armed():
+                p_tag, p_tk = "Monitoring", "info"
+            elif core.monitor.state == AWAY:
+                p_tag, p_tk = "Away — locked", "info"
+            elif not core.monitor.fresh:
+                p_tag, p_tk = "No signal", "warn"
+            else:
+                p_tag, p_tk = "Present", "ok"
+            devices = [{"uid": u, "name": d["name"], "rssi": d["rssi"]}
+                       for u, d in core.resolvable_devices()[:12]]
 
-        def quitApp_(self, _):
-            self.win.close()
+            if core.want_motion and core.sensor is not None:
+                m_mode = "ready"
+            elif (engines["motion_reason"] == "needs sudo -E (root)"
+                  and core.sensor is None):
+                m_mode = "enable"
+            else:
+                m_mode = "none"
+            m_txt, mg = core.motion_view()
+            thr_mg = cfg["threshold_g"] * 1000 or 1
+            m_pct = min(100.0, mg / thr_mg * 50) if m_mode == "ready" else 0
+            if m_mode == "enable":
+                m_tag, m_tk = "Off", "info"
+            elif m_mode == "none":
+                m_tag, m_tk = "Unavailable", ""
+            elif core._alarm_engaged():
+                m_tag, m_tk = "ALARM", "err"
+            elif core.motion_armed():
+                m_tag, m_tk = "Armed", "ok"
+            else:
+                m_tag, m_tk = "Disarmed", "info"
 
-        # -- window/app lifecycle --
-        def windowWillClose_(self, _):
-            self.win.makeFirstResponder_(None)   # commit any in-progress field edit
-            self._teardown()
-            AppHelper.stopEventLoop()
+            if core._alarm_engaged():
+                header, hk = "Alarm", "alarm"
+            elif core.proximity_armed() or core.motion_armed():
+                header, hk = "Armed", "armed"
+            else:
+                header, hk = "Monitoring", ""
+
+            banner, bk = "", "info"
+            if self._banner and time.monotonic() < self._banner_until:
+                banner, bk = self._banner
+
+            self._js("vigilTick", {
+                "p": {"armed": core.proximity_armed(), "tagText": p_tag, "tag": p_tk,
+                      "rssi": "—" if rssi is None else f"{rssi:.0f} dBm", "pct": pct,
+                      "devices": devices, "device": cfg.get("device_identifier") or ""},
+                "m": {"mode": m_mode, "armed": core.motion_armed(),
+                      "tagText": m_tag, "tag": m_tk, "reason": engines["motion_reason"],
+                      "mg": (f"{mg:.0f} mg"
+                             + (f"  peak {core.motion_peak*1000:.0f}" if m_mode == "ready" else "")),
+                      "pct": m_pct, "hot": bool(mg >= thr_mg and m_mode == "ready"),
+                      "silent": bool(cfg.get("silent_mode"))},
+                "header": header, "headerKind": hk,
+                "banner": banner, "bannerKind": bk,
+            })
 
         @objc.python_method
         def _teardown(self):
-            if getattr(self, "_nstimer", None) is not None:
+            if self._torn:
+                return
+            self._torn = True
+            if self._nstimer is not None:
                 self._nstimer.invalidate()
-                self._nstimer = None
             self.core.teardown()
 
-        # -- periodic refresh --
         @objc.python_method
-        def _tick(self):
-            self.core.heartbeat_step()
-            self._refresh()
+        def _quit(self):
+            self.win.close()
 
-        @objc.python_method
-        def _refresh_device_popup(self):
-            devs = self.core.resolvable_devices()
-            names = [d["name"] for _u, d in devs]
-            cur = cfg.get("device_name")
-            if cur and cur not in names:
-                names = [cur] + names
-            # Rebuild only when the SET of names changes, not on RSSI reorder —
-            # otherwise a scan tick tears down the dropdown while it's open.
-            if self._dev_names is None or set(names) != set(self._dev_names):
-                self._dev_names = names
-                self.dev_popup.removeAllItems()
-                self.dev_popup.addItemsWithTitles_(names or ["(scanning…)"])
-                if cur in names:
-                    self.dev_popup.selectItemWithTitle_(cur)
-            # strongest-RSSI wins for a duplicated name (devs is sorted strongest-first)
-            self._dev_uids = {}
-            for uid, d in devs:
-                self._dev_uids.setdefault(d["name"], uid)
-
-        @objc.python_method
-        def _refresh(self):
-            p_txt, rssi = self.core.proximity_view()
-            self.p_state.setStringValue_(p_txt)
-            self.p_btn.setTitle_("Disarm" if self.core.proximity_armed() else "Arm")
-            self.p_rssi.setStringValue_("--" if rssi is None else f"{rssi:.0f} dBm")
-            self.p_meter.setDoubleValue_(
-                0.0 if rssi is None else min(100.0, max(0.0, (rssi + 100) / 60.0 * 100)))
-            self._refresh_device_popup()
-
-            m_txt, mg = self.core.motion_view()
-            self.m_state.setStringValue_(m_txt)
-            if engines["want_motion"]:
-                self.m_btn.setTitle_("Disarm" if self.core.motion_armed() else "Arm")
-                self.m_mg.setStringValue_(f"{mg:.0f} mg  (peak {self.core.motion_peak*1000:.0f})")
-                thr_mg = cfg["threshold_g"] * 1000
-                self.m_meter.setDoubleValue_(min(100.0, mg / thr_mg * 50.0) if thr_mg else 0)
-
-            armed = self.core.proximity_armed() or self.core.motion_armed()
-            self.header.setStringValue_(
-                "Vigil — 🚨 ALARM" if self.core._alarm_engaged()
-                else ("Vigil — armed" if armed else "Vigil"))
+        # NSWindowDelegate
+        def windowWillClose_(self, note):
+            self._teardown()
+            AppHelper.stopEventLoop()
 
     class AppDelegate(NSObject):
         def applicationShouldTerminateAfterLastWindowClosed_(self, app):
             return True
 
-    from AppKit import NSImage, NSMenu, NSMenuItem
-    from Foundation import NSBundle
-
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
-    # App identity so the Dock/menu read "Vigil" with our icon, not generic Python.
-    icns = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "assets", "Vigil.icns")
+    icns = os.path.join(base, "assets", "Vigil.icns")
     if os.path.exists(icns):
         _img = NSImage.alloc().initWithContentsOfFile_(icns)
         if _img is not None:
@@ -1057,33 +909,65 @@ def run_window(cfg, want_motion, motion_reason):
     except Exception:
         pass
 
-    # Minimal main menu: app menu (Quit) + Edit menu (so field copy/paste works).
-    main = NSMenu.alloc().init()
+    mainmenu = NSMenu.alloc().init()
     app_item = NSMenuItem.alloc().init()
-    main.addItem_(app_item)
+    mainmenu.addItem_(app_item)
     app_menu = NSMenu.alloc().init()
     app_menu.addItemWithTitle_action_keyEquivalent_("Hide Vigil", b"hide:", "h")
     app_menu.addItem_(NSMenuItem.separatorItem())
     app_menu.addItemWithTitle_action_keyEquivalent_("Quit Vigil", b"terminate:", "q")
     app_item.setSubmenu_(app_menu)
     edit_item = NSMenuItem.alloc().init()
-    main.addItem_(edit_item)
+    mainmenu.addItem_(edit_item)
     edit_menu = NSMenu.alloc().initWithTitle_("Edit")
     for title, sel, key in (("Cut", b"cut:", "x"), ("Copy", b"copy:", "c"),
                             ("Paste", b"paste:", "v"), ("Select All", b"selectAll:", "a")):
         edit_menu.addItemWithTitle_action_keyEquivalent_(title, sel, key)
     edit_item.setSubmenu_(edit_menu)
-    app.setMainMenu_(main)
+    app.setMainMenu_(mainmenu)
 
+    bridge = Bridge.alloc().init().setup()
     delegate = AppDelegate.alloc().init()
     app.setDelegate_(delegate)
-    controller = VigilWindow.alloc().init().build()
+
+    style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+             | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+    win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        NSMakeRect(0, 0, 940, 820), style, NSBackingStoreBuffered, False)
+    win.setTitle_("Vigil")
+    win.setReleasedWhenClosed_(False)
+    win.setDelegate_(bridge)
+    win.setMinSize_((520, 560))
+    win.setBackgroundColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(0.086, 0.086, 0.086, 1.0))
+    bridge.win = win
+
+    conf = WKWebViewConfiguration.alloc().init()
+    ucc = WKUserContentController.alloc().init()
+    ucc.addScriptMessageHandler_name_(bridge, "vigil")
+    conf.setUserContentController_(ucc)
+    web = WKWebView.alloc().initWithFrame_configuration_(
+        NSMakeRect(0, 0, 940, 820), conf)
+    web.setNavigationDelegate_(bridge)
+    web.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+    try:
+        web.setValue_forKey_(False, "drawsBackground")
+    except Exception:
+        pass
+    bridge.web = web
+    win.contentView().addSubview_(web)
+
+    web.loadHTMLString_baseURL_(_load_html(), None)
+    bridge.start_timer()
+
+    win.center()
+    win.makeKeyAndOrderFront_(None)
     app.activateIgnoringOtherApps_(True)
     signal.signal(signal.SIGTERM, lambda *_: AppHelper.stopEventLoop())
     try:
         AppHelper.runEventLoop()
     finally:
-        controller._teardown()
+        bridge._teardown()
+
 
 
 # ---- menu-bar front end -----------------------------------------------------
