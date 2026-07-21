@@ -241,6 +241,7 @@ a{color:var(--link);}
       <div class="chead"><h2>Motion alarm</h2><span id="m_tag" class="tag">—</span></div>
       <div class="sub">Sounds a siren if the Mac is physically moved.</div>
       <button id="m_btn" class="btn btn-primary" onclick="motionAction()">Arm</button>
+      <button id="m_dismiss" class="btn btn-danger" style="display:none; margin-top:8px;" onclick="post('dismissAlarm')">Dismiss alarm (stay armed)</button>
       <div id="m_hint" class="mutehint"></div>
       <div class="meter">
         <div class="top"><span class="lab">MOVEMENT</span><span id="m_mg" class="val mono">—</span></div>
@@ -347,6 +348,7 @@ window.vigilTick = function(s){
   else { mb.textContent='Arm'; mb.className='btn'; mb.disabled=true; $('m_hint').textContent=s.m.reason||''; }
   var en=(s.m.mode==='ready');
   $('silent').disabled=!en; $('f_threshold_g').disabled=!en; $('f_max_alarm_s').disabled=!en; $('f_arm_grace_s').disabled=!en;
+  $('m_dismiss').style.display = s.m.alarm ? 'block' : 'none';
   $('m_mg').textContent=s.m.mg;
   var mm=$('m_meter'); mm.style.width=s.m.pct+'%'; mm.className='fill'+(s.m.hot?' hot':'');
   if(typeof s.m.silent!=='undefined') $('silent').checked=s.m.silent;

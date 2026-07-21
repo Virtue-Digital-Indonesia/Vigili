@@ -487,6 +487,17 @@ class VigilCore:
             self.sensor.disarm()
         self._stop_alarm()
 
+    def dismiss_alarm(self):
+        """Silence the current alarm but stay armed — with a cooldown so it doesn't
+        instantly re-fire. Returns True if there was an alarm to dismiss."""
+        if not self._alarm_engaged():
+            return False
+        self._stop_alarm()
+        if self.sensor:
+            self.sensor.triggered.clear()
+        self.cooldown_until = time.monotonic() + max(self.cfg["cooldown_s"], 3.0)
+        return True
+
     def test_alarm(self):
         if not self.sensor or self.sensor.armed or self._alarm_engaged():
             return
@@ -544,8 +555,10 @@ class VigilCore:
             if (self.cfg.get("link_lock_to_motion") and locked
                     and not self.prev_locked and not self.sensor.armed):
                 self.arm_motion()
+                self.notify("Vigil", "Motion alarm armed", "screen locked")
             if self.sensor.armed and self.prev_locked and not locked:
                 self.disarm_motion()
+                self.notify("Vigil", "Motion alarm disarmed", "welcome back")
         self.prev_locked = locked
 
         if self.sensor:
@@ -772,6 +785,9 @@ def run_window(cfg, want_motion, motion_reason):
                 self._enable_motion()
             elif action == "testAlarm":
                 core.test_alarm()
+            elif action == "dismissAlarm":
+                if core.dismiss_alarm():
+                    self._set_banner("Alarm dismissed — still armed", "ok")
             elif action == "toggleSilent":
                 core.toggle_silent()
             elif action == "toggleLink":
@@ -960,6 +976,7 @@ def run_window(cfg, want_motion, motion_reason):
                       "mg": (f"{mg:.0f} mg"
                              + (f"  peak {core.motion_peak*1000:.0f}" if m_mode == "ready" else "")),
                       "pct": m_pct, "hot": bool(mg >= thr_mg and m_mode == "ready"),
+                      "alarm": core._alarm_engaged(),
                       "silent": bool(cfg.get("silent_mode"))},
                 "header": header, "headerKind": hk,
             })
