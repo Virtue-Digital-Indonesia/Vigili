@@ -230,13 +230,42 @@ def helper_paths():
     return os.path.join(d, "motion.ctrl"), os.path.join(d, "motion.dat")
 
 
+def _helper_python():
+    """A python interpreter NOT under a TCC-protected folder (Documents/Desktop/
+    Downloads). macimu is pure ctypes, so the stock system python3 is enough."""
+    for cand in ("/usr/bin/python3", "/opt/homebrew/bin/python3",
+                 "/usr/local/bin/python3"):
+        if os.path.exists(cand):
+            return cand
+    return sys.executable
+
+
+def _stage_root_helper():
+    """Copy motion_helper.py + the macimu package into ~/.config/vigil/helper.
+
+    The root helper (launched via the admin prompt) is blocked by macOS TCC from
+    reading ~/Documents, where the project + venv live — so we stage everything it
+    needs into ~/.config (not TCC-protected) and run it with the system python."""
+    import shutil
+    d = os.path.join(os.path.dirname(config_path()), "helper")
+    os.makedirs(d, exist_ok=True)
+    shutil.copy2(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_helper.py"),
+        os.path.join(d, "motion_helper.py"))
+    import macimu
+    dst = os.path.join(d, "macimu")
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(os.path.dirname(macimu.__file__), dst,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    return d
+
+
 def launch_motion_helper(control, data):
     """Prompt for admin (password / Touch ID) and start motion_helper.py as root,
-    detached. Returns (ok, message). The heavy lifting is the one osascript line."""
-    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_helper.py")
-    py = sys.executable
+    detached. Returns (ok, message)."""
     try:
         motion.ensure_config_dir()
+        staged = _stage_root_helper()
         # clear any stale data file so we can detect the new helper coming up
         try:
             os.remove(data)
@@ -245,11 +274,15 @@ def launch_motion_helper(control, data):
         with open(control, "w") as fh:
             json.dump({"armed": False, "threshold_g": 0.06, "arm_grace_s": 4.0,
                        "arm_seq": 0, "stop": False}, fh)
-    except OSError as exc:
-        return False, f"could not prepare control file: {exc}"
+    except Exception as exc:
+        return False, f"could not prepare helper: {exc}"
+    helper = os.path.join(staged, "motion_helper.py")
+    py = _helper_python()
     # `( … & )` orphans the helper to launchd so it survives; `nohup` fails inside
     # `do shell script` ("can't detach from console"). </dev/null detaches stdin.
-    inner = (f"( {shlex.quote(py)} {shlex.quote(helper)} "
+    # PYTHONPATH points at the staged macimu.
+    inner = (f"( PYTHONPATH={shlex.quote(staged)} {shlex.quote(py)} "
+             f"{shlex.quote(helper)} "
              f"--control {shlex.quote(control)} --data {shlex.quote(data)} "
              f"</dev/null >/tmp/vigil_helper.log 2>&1 & )")
     osa = ('do shell script "' + inner.replace('\\', '\\\\').replace('"', '\\"')
