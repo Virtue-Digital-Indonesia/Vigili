@@ -27,6 +27,13 @@ physically moved while armed, using the built-in accelerometer.
 
 ## Install (no Terminal needed)
 
+**Easiest — grab the pre-built app:** download **[`Vigili.dmg`](https://github.com/Virtue-Digital-Indonesia/Vigili/releases/latest)**
+from Releases, open it, and drag **Vigili** into **Applications**. First launch:
+**right-click Vigili ▸ Open** (it's ad-hoc signed, not from the App Store, so macOS
+asks once). No Python needed — it's fully self-contained.
+
+<details><summary><b>Or build it from source</b></summary>
+
 1. **Download** this project — green **Code ▸ Download ZIP** button on GitHub —
    and unzip it. (Or `git clone`.)
 2. Open the `vigili` folder and **double-click `Install Vigili.command`**.
@@ -41,6 +48,8 @@ physically moved while armed, using the built-in accelerometer.
 > First launch asks for **Bluetooth** access once (that's the proximity lock).
 > *Building* needs **Python 3** (macOS ships it, or run `xcode-select --install`) —
 > but the finished app bundles its own, so it runs on any Apple-silicon Mac without it.
+
+</details>
 
 ---
 
