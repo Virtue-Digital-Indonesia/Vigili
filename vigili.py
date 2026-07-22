@@ -102,6 +102,35 @@ def config_path() -> str:
     return os.path.join(base, "vigili", "vigili.json")
 
 
+def _migrate_legacy_config_file() -> None:
+    """The combined app's config file was renamed vigil.json -> vigili.json. The
+    directory move left the file under its old name, so recover it — otherwise a
+    paired device + tuned settings get silently replaced by defaults."""
+    new = config_path()                                    # ~/.config/vigili/vigili.json
+    old = os.path.join(os.path.dirname(new), "vigil.json")
+    if not os.path.exists(old):
+        return
+    try:
+        if not os.path.exists(new):
+            os.rename(old, new)
+            return
+        # Both exist: a defaults vigili.json may have been written before this fix.
+        # If it never captured a device but the old file has one, the old file is
+        # the real config — recover it; otherwise the newer file wins.
+        with open(new, encoding="utf-8") as fh:
+            cur = json.load(fh)
+        with open(old, encoding="utf-8") as fh:
+            prev = json.load(fh)
+        cur_dev = isinstance(cur, dict) and (cur.get("device_identifier") or cur.get("device_name"))
+        prev_dev = isinstance(prev, dict) and (prev.get("device_identifier") or prev.get("device_name"))
+        if prev_dev and not cur_dev:
+            os.replace(old, new)
+        else:
+            os.remove(old)
+    except (OSError, ValueError):
+        pass
+
+
 def _sanitize(cfg: dict) -> dict:
     for key, (lo, hi) in _NUM_BOUNDS.items():
         v = cfg.get(key)
@@ -124,6 +153,7 @@ def _sanitize(cfg: dict) -> dict:
 
 def load_config() -> dict:
     motion.migrate_legacy_config_dir()
+    _migrate_legacy_config_file()
     cfg = dict(DEFAULTS)
     try:
         with open(config_path(), encoding="utf-8") as fh:
@@ -303,8 +333,14 @@ def launch_motion_helper(control, data):
     py = _helper_python()
     # `( … & )` orphans the helper to launchd so it survives; `nohup` fails inside
     # `do shell script` ("can't detach from console"). </dev/null detaches stdin.
-    # PYTHONPATH points at the staged macimu.
-    inner = (f"( PYTHONPATH={shlex.quote(staged)} {shlex.quote(py)} "
+    # CRITICAL: when we're a py2app bundle, our process exports PYTHONHOME (and
+    # friends) for the app's *embedded* interpreter; those leak into this admin
+    # shell and make the external system python3 load its stdlib from the .app —
+    # "No module named 'encodings'". Unset them so python3 uses its own home; then
+    # point PYTHONPATH at the staged macimu.
+    inner = (f"( unset PYTHONHOME PYTHONEXECUTABLE PYTHONNOUSERSITE "
+             f"PYTHONDONTWRITEBYTECODE PYTHONPATH; "
+             f"PYTHONPATH={shlex.quote(staged)} {shlex.quote(py)} "
              f"{shlex.quote(helper)} "
              f"--control {shlex.quote(control)} --data {shlex.quote(data)} "
              f"</dev/null >/tmp/vigili_helper.log 2>&1 & )")
