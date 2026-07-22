@@ -1019,6 +1019,36 @@ def run_window(cfg, want_motion, motion_reason):
                       "silent": bool(cfg.get("silent_mode"))},
                 "header": header, "headerKind": hk,
             })
+            # Auto-size the window to the page whenever the layout can change
+            # (motion mode, alarm-dismiss button) so it never scrolls and never
+            # leaves dead space — whatever state we're in.
+            sig = (m_mode, core._alarm_engaged())
+            if sig != getattr(self, "_layout_sig", None):
+                self._layout_sig = sig
+                self._fit_window()
+
+        @objc.python_method
+        def _fit_window(self):
+            def apply(res, err):
+                try:
+                    target = max(480.0, min(900.0, float(res)))
+                except (TypeError, ValueError):
+                    return
+                win = self.win
+                cur = win.contentRectForFrameRect_(win.frame()).size.height
+                delta = target - cur
+                if abs(delta) < 2:
+                    return
+                f = win.frame()          # grow/shrink downward, holding the top edge
+                win.setFrame_display_animate_(
+                    NSMakeRect(f.origin.x, f.origin.y - delta,
+                               f.size.width, f.size.height + delta), True, False)
+            try:
+                self.web.evaluateJavaScript_completionHandler_(
+                    "Math.ceil(document.querySelector('.footbar')"
+                    ".getBoundingClientRect().bottom + 14)", apply)
+            except Exception:
+                pass
 
         @objc.python_method
         def _teardown(self):
@@ -1081,7 +1111,7 @@ def run_window(cfg, want_motion, motion_reason):
     style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
              | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(0, 0, 900, 648), style, NSBackingStoreBuffered, False)
+        NSMakeRect(0, 0, 900, 672), style, NSBackingStoreBuffered, False)
     win.setTitle_("Vigili")
     win.setReleasedWhenClosed_(False)
     win.setDelegate_(bridge)
@@ -1094,7 +1124,7 @@ def run_window(cfg, want_motion, motion_reason):
     ucc.addScriptMessageHandler_name_(bridge, "vigili")
     conf.setUserContentController_(ucc)
     web = WKWebView.alloc().initWithFrame_configuration_(
-        NSMakeRect(0, 0, 900, 648), conf)
+        NSMakeRect(0, 0, 900, 672), conf)
     web.setNavigationDelegate_(bridge)
     web.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
     try:
