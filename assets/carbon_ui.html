@@ -280,6 +280,17 @@ a{color:var(--link);}
         <div class="inp"><input id="f_heartbeat_s" data-key="heartbeat_s" inputmode="decimal"><span class="unit">s</span></div>
       </div>
     </div>
+    <div class="fields" style="margin-top:18px;">
+      <div class="f full">
+        <label>Lock method</label>
+        <select id="lock_method" onchange="post('setLockMethod',{method:this.value})" title="How the proximity lock locks the screen.">
+          <option value="immediate">Immediate — instant, no permission (may turn the display off)</option>
+          <option value="keystroke">Keystroke ⌃⌘Q — native Lock Screen, keeps display on (needs Accessibility)</option>
+          <option value="screensaver">Screen saver — display stays on (needs &ldquo;require password&rdquo; set)</option>
+        </select>
+        <span class="help">Change this if locking turns your display off.</span>
+      </div>
+    </div>
   </section>
 
   <div class="footbar" style="margin-top:1px;">
@@ -315,6 +326,7 @@ window.vigilInit = function(c){
   applyTheme((c.theme&&c.theme.mode)||'auto', c.theme?c.theme.dark:true);
   for(var k in c.fields){ var el=$('f_'+k); if(el) el.value=c.fields[k]; }
   $('silent').checked=!!c.silent; $('link').checked=!!c.link;
+  if(c.lock_method){ var lm=$('lock_method'); if(lm) lm.value=c.lock_method; }
 };
 window.vigilField = function(key, value){ var el=$('f_'+key); if(el) el.value=value; };
 

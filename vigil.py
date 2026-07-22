@@ -50,7 +50,7 @@ except ImportError:                              # pragma: no cover
 
 import motion_alarm as motion
 from proximity_lock import (ProximityMonitor, lock_screen, _make_central,
-                            PRESENT, AWAY)
+                            _accessibility_trusted, PRESENT, AWAY)
 from motion_alarm import (MotionSensor, AlarmPlayer, ensure_siren,
                           screen_is_locked, has_gui_session)
 
@@ -68,7 +68,8 @@ DEFAULTS = {
     "silent_mode": False,
     # combined
     "heartbeat_s": 0.5, "link_lock_to_motion": True,
-    "theme": "auto",   # auto | light | dark
+    "theme": "auto",              # auto | light | dark
+    "lock_method": "immediate",   # immediate | keystroke | screensaver
 }
 
 # numeric bounds — corrupt/hand-edited values are coerced so a bad config can't
@@ -105,6 +106,8 @@ def _sanitize(cfg: dict) -> dict:
         cfg[key] = bool(cfg.get(key))
     if cfg.get("theme") not in ("auto", "light", "dark"):
         cfg["theme"] = "auto"
+    if cfg.get("lock_method") not in ("immediate", "keystroke", "screensaver"):
+        cfg["lock_method"] = "immediate"
     return cfg
 
 
@@ -515,7 +518,7 @@ class VigilCore:
         save_config(self.cfg)
 
     def lock_now(self):
-        return lock_screen()
+        return lock_screen(self.cfg.get("lock_method", "immediate"))
 
     def set_value(self, key, value):
         self.cfg[key] = value
@@ -737,6 +740,7 @@ def run_window(cfg, want_motion, motion_reason):
                 "fields": self._fields_payload(),
                 "silent": bool(cfg.get("silent_mode")),
                 "link": bool(cfg.get("link_lock_to_motion")),
+                "lock_method": cfg.get("lock_method", "immediate"),
             })
 
         @objc.python_method
@@ -793,6 +797,16 @@ def run_window(cfg, want_motion, motion_reason):
             elif action == "toggleLink":
                 cfg["link_lock_to_motion"] = not cfg.get("link_lock_to_motion")
                 save_config(cfg)
+            elif action == "setLockMethod":
+                m = str(body.get("method") or "immediate")
+                if m in ("immediate", "keystroke", "screensaver"):
+                    cfg["lock_method"] = m
+                    save_config(cfg)
+                    if m == "keystroke" and not _accessibility_trusted():
+                        self._set_banner("Grant Vigil Accessibility (System Settings "
+                                         "▸ Privacy ▸ Accessibility) for ⌃⌘Q lock", "warn")
+                    else:
+                        self._set_banner(f"Lock method: {m}", "ok")
             elif action == "setTheme":
                 mode = str(body.get("mode") or "auto")
                 if mode in ("auto", "light", "dark"):

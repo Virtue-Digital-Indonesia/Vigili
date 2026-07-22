@@ -100,6 +100,7 @@ DEFAULT_CONFIG = {
     "absence_timeout": 20.0,     # no advertisement for this long => treated as no-signal
     "smoothing_window": 8.0,     # seconds of RSSI history used for the median
     "min_samples": 2,            # need at least this many samples in-window to trust it
+    "lock_method": "immediate",  # immediate | keystroke | screensaver
 }
 
 
@@ -185,28 +186,82 @@ def save_config(path: str, cfg: dict) -> None:
 _LOGIN_FRAMEWORK = "/System/Library/PrivateFrameworks/login.framework/login"
 
 
-def lock_screen() -> str:
-    """Lock the screen immediately. Returns the method used. Never unlocks."""
-    # Primary: private, immediate, requires-password-now, no special permission.
+def _accessibility_trusted() -> bool:
+    """True if this process may synthesize system keystrokes (Accessibility)."""
+    try:
+        ax = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework"
+                         "/ApplicationServices")
+        ax.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(ax.AXIsProcessTrusted())
+    except Exception:
+        return False
+
+
+def _lock_immediate() -> str | None:
+    """Private login.framework lock — instant, no permission. May also sleep the
+    display on some macOS versions (that's what the keystroke method avoids)."""
     try:
         login = ctypes.CDLL(_LOGIN_FRAMEWORK)
         if hasattr(login, "SACLockScreenImmediate"):
             login.SACLockScreenImmediate()
-            return "SACLockScreenImmediate"
+            return "immediate"
     except OSError:
         pass
+    return None
 
+
+def _lock_keystroke() -> bool:
+    """Post ⌃⌘Q — the native 'Lock Screen' — which keeps the display ON.
+    Requires Accessibility permission for this app."""
+    try:
+        import Quartz
+        src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
+        flags = Quartz.kCGEventFlagMaskControl | Quartz.kCGEventFlagMaskCommand
+        for down in (True, False):
+            ev = Quartz.CGEventCreateKeyboardEvent(src, 12, down)  # 12 = 'q'
+            Quartz.CGEventSetFlags(ev, flags)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+        return True
+    except Exception:
+        return False
+
+
+def lock_screen(method: str = "immediate") -> str:
+    """Lock the screen. `method`: 'immediate' (private call, may sleep display),
+    'keystroke' (native ⌃⌘Q, keeps display on, needs Accessibility), or
+    'screensaver' (starts the screen saver, display stays on). Never unlocks."""
+    method = (method or "immediate").lower()
     import subprocess
-    # Fallback: kick the screen saver (locks iff "require password" is set).
+
+    if method == "keystroke":
+        if _accessibility_trusted() and _lock_keystroke():
+            return "keystroke"
+        # not permitted → still lock (so we never leave it unlocked), but flag it
+        return (_lock_immediate() or "displaysleep") + " · grant Accessibility for ⌃⌘Q"
+
+    if method == "screensaver":
+        try:
+            subprocess.run(["/usr/bin/open", "-a", "ScreenSaverEngine"],
+                           check=True, timeout=5)
+            return "screensaver"
+        except Exception:
+            pass
+        m = _lock_immediate()
+        if m:
+            return m
+
+    # default: immediate, with fallbacks
+    m = _lock_immediate()
+    if m:
+        return m
     try:
         subprocess.run(["/usr/bin/open", "-a", "ScreenSaverEngine"],
                        check=True, timeout=5)
-        return "ScreenSaverEngine (fallback)"
+        return "screensaver (fallback)"
     except Exception:
         pass
-    # Last resort: sleep the display (locks per require-password setting).
     subprocess.run(["/usr/bin/pmset", "displaysleepnow"], timeout=5)
-    return "pmset displaysleepnow (last-resort fallback)"
+    return "displaysleep (last-resort)"
 
 
 # ---- BLE monitor ------------------------------------------------------------
@@ -396,7 +451,7 @@ class ProximityMonitor(NSObject):
                 print(">>> would LOCK now (monitor/disarmed; no action taken)")
             self.last_lock_method = None
             return
-        method = lock_screen()
+        method = lock_screen(self.cfg.get("lock_method", "immediate"))
         self.last_lock_method = method
         if self.verbose:
             print(f"\n>>> AWAY: locked screen via {method}")
