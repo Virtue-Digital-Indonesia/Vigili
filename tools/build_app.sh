@@ -1,52 +1,41 @@
 #!/usr/bin/env bash
-# Build Vigil.app — a double-clickable wrapper around the window GUI.
-# Bakes this project's absolute path into the launcher so the .app works even if
-# you move it to /Applications. Run via "Install Vigil.command" (or directly).
+# Build Vigili.app — a REAL, self-contained macOS app via py2app.
+#
+# Unlike the old shell-wrapper, this bundles its own Python + pyobjc, so the app
+# runs without the project folder or a .venv present, shows up as "Vigili" (not
+# "Python") in the menu bar / Force-Quit, and can be handed to someone else.
+#
+# Output: ./Vigili.app   (drag it to /Applications, or double-click in place)
 set -euo pipefail
 
 PROJECT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-APP="$PROJECT/Vigil.app"
+cd "$PROJECT"
 
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+PY="$PROJECT/.venv/bin/python3"
+[ -x "$PY" ] || PY="$(command -v python3)"
 
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Vigil</string>
-  <key>CFBundleDisplayName</key><string>Vigil</string>
-  <key>CFBundleIdentifier</key><string>id.val.vigil</string>
-  <key>CFBundleVersion</key><string>1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleExecutable</key><string>Vigil</string>
-  <key>CFBundleIconFile</key><string>Vigil</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>NSHighResolutionCapable</key><true/>
-  <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
-  <key>NSBluetoothAlwaysUsageDescription</key><string>Vigil watches your paired device's Bluetooth signal so it can lock the screen when you walk away.</string>
-  <key>LSMinimumSystemVersion</key><string>12.0</string>
-</dict></plist>
-PLIST
-
-# Launcher (PROJECT is baked in at build time; other vars stay runtime).
-cat > "$APP/Contents/MacOS/Vigil" <<LAUNCH
-#!/bin/bash
-PROJECT="$PROJECT"
-PY="\$PROJECT/.venv/bin/python3"
-if [ ! -x "\$PY" ]; then
-  osascript -e 'display alert "Vigil needs setup" message "Open the Vigil folder and run \"Install Vigil.command\" first." as critical'
-  exit 1
-fi
-exec "\$PY" "\$PROJECT/vigil.py" "\$@"
-LAUNCH
-chmod +x "$APP/Contents/MacOS/Vigil"
-
-printf 'APPL????' > "$APP/Contents/PkgInfo"
-
-if [ -f "$PROJECT/assets/Vigil.icns" ]; then
-  cp "$PROJECT/assets/Vigil.icns" "$APP/Contents/Resources/Vigil.icns"
+# py2app is a build-time-only dependency (the finished app doesn't need it).
+if ! "$PY" -c 'import py2app' >/dev/null 2>&1; then
+  echo "· installing py2app (build tool)…"
+  "$PY" -m pip install --quiet 'py2app>=0.28'
 fi
 
-touch "$APP"                      # nudge Finder to refresh the icon
-echo "built $APP"
+# Generate the icon if it isn't already committed.
+if [ ! -f assets/Vigili.icns ]; then
+  echo "· rendering app icon…"
+  "$PY" tools/make_icon.py assets/Vigili.iconset >/dev/null &&
+    iconutil -c icns assets/Vigili.iconset -o assets/Vigili.icns
+fi
+
+echo "· building Vigili.app (py2app)…"
+rm -rf build dist "$PROJECT/Vigili.app"
+"$PY" setup.py py2app >/dev/null
+
+# py2app ad-hoc-signs on Apple Silicon (required to launch); confirm it's valid.
+codesign --verify --deep --strict dist/Vigili.app
+
+mv dist/Vigili.app "$PROJECT/Vigili.app"
+rm -rf build dist
+touch "$PROJECT/Vigili.app"        # nudge Finder to refresh the icon
+SIZE="$(du -sh "$PROJECT/Vigili.app" | cut -f1)"
+echo "✅ built $PROJECT/Vigili.app  ($SIZE, ad-hoc signed, self-contained)"

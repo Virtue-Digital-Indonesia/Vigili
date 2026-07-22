@@ -1,4 +1,4 @@
-# Vigil dependencies (macOS, Apple Silicon)
+# Vigili dependencies (macOS, Apple Silicon)
 # Install into a venv:  python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 
 # --- Part 1: proximity_lock.py ---
@@ -11,3 +11,6 @@ macimu>=0.2.0                       # undocumented Apple-silicon IMU over IOKit 
 rumps>=0.4.0                        # menu bar app
 pyobjc-framework-Cocoa>=10          # rumps dependency
 pyobjc-framework-WebKit>=10        # Carbon UI in a WKWebView
+
+# --- Build only (bundling a standalone Vigili.app; not needed at runtime) ---
+py2app>=0.28                       # freezes app + embedded Python into Vigili.app

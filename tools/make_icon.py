@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate Vigil's app icon: a white shield with a keyhole on a blue→indigo
+Generate Vigili's app icon: a white shield with a keyhole on a blue→indigo
 squircle. Renders each iconset size natively (crisp), then you run `iconutil`.
 
-    python3 tools/make_icon.py assets/Vigil.iconset
-    iconutil -c icns assets/Vigil.iconset -o assets/Vigil.icns
+    python3 tools/make_icon.py assets/Vigili.iconset
+    iconutil -c icns assets/Vigili.iconset -o assets/Vigili.icns
 """
 import os
 import sys
@@ -124,7 +124,7 @@ def render(size, out_path):
 
 
 def main():
-    iconset = sys.argv[1] if len(sys.argv) > 1 else "assets/Vigil.iconset"
+    iconset = sys.argv[1] if len(sys.argv) > 1 else "assets/Vigili.iconset"
     os.makedirs(iconset, exist_ok=True)
     sizes = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2),
              (256, 1), (256, 2), (512, 1), (512, 2)]
@@ -133,7 +133,7 @@ def main():
         name = f"icon_{base}x{base}{'@2x' if scale == 2 else ''}.png"
         render(px, os.path.join(iconset, name))
     # also a standalone 1024 preview
-    render(1024, os.path.join(os.path.dirname(iconset), "vigil_icon_preview.png"))
+    render(1024, os.path.join(os.path.dirname(iconset), "vigili_icon_preview.png"))
     print(f"wrote iconset -> {iconset}")
 
 

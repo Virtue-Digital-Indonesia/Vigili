@@ -1,26 +1,26 @@
-VIGIL — quick start
-===================
+VIGILI — quick start
+====================
 
-1. Double-click "Install Vigil.command".
+1. Double-click "Install Vigili.command".
    (First time: right-click it, choose Open, then click Open.)
-   Wait for the "Vigil is ready!" message.
+   Wait for the "Vigili is ready!" message.
 
-2. Double-click "Vigil.app" to start.
+2. Double-click "Vigili.app" to start.
 
 WHAT IT DOES
 ------------
 • Proximity lock: locks your screen when your phone leaves, unlocks nothing.
   - Pair your phone in System Settings > Bluetooth first.
-  - In Vigil, pick your phone under "Device", then click "Arm".
+  - In Vigili, pick your phone under "Device", then click "Arm".
   - Hover any control for a plain-English explanation.
 
 • Motion alarm: sounds a siren if the Mac is moved while armed.
   - In the "Motion Alarm" section, click "Enable...".
   - macOS asks for your password (or Touch ID) once, then it's ready.
-  - Click "Arm". (The helper stops itself when you quit Vigil.)
+  - Click "Arm". (The helper stops itself when you quit Vigili.)
 
 NOTES
 -----
-• Vigil never unlocks your Mac — macOS doesn't allow apps to do that.
+• Vigili never unlocks your Mac — macOS doesn't allow apps to do that.
   Use Touch ID or Apple Watch to unlock quickly.
 • Your settings save automatically and come back next time.

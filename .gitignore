@@ -5,8 +5,10 @@ __pycache__/
 venv/
 
 # Generated / machine-specific build outputs
-Vigil.app/
-assets/Vigil.iconset/
+Vigili.app/
+assets/Vigili.iconset/
+build/
+dist/
 
 # macOS
 .DS_Store

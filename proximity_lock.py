@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vigil — Part 1: proximity_lock.py
+Vigili — Part 1: proximity_lock.py
 
 Locks the Mac's screen when a paired Bluetooth device (your iPhone / AirPods /
 Watch) goes out of range, and *re-arms* when it comes back. It NEVER unlocks —
@@ -54,7 +54,7 @@ USAGE
   python3 proximity_lock.py --monitor         # live RSSI/state, NO locking (tune here)
   python3 proximity_lock.py                    # run: lock when away, re-arm when back
 
-Config lives at ~/.config/vigil/proximity.json. Override any threshold on the
+Config lives at ~/.config/vigili/proximity.json. Override any threshold on the
 command line (see --help).
 """
 
@@ -88,7 +88,7 @@ import ctypes
 
 # ---- config -----------------------------------------------------------------
 
-APP_DIR_NAME = "vigil"
+APP_DIR_NAME = "vigili"
 CONFIG_BASENAME = "proximity.json"
 
 DEFAULT_CONFIG = {
@@ -122,6 +122,20 @@ def config_path(override: str | None = None) -> str:
     return os.path.join(base, APP_DIR_NAME, CONFIG_BASENAME)
 
 
+def migrate_legacy_config_dir() -> None:
+    """One-time: rename the old ~/.config/vigil directory to ~/.config/vigili so
+    the app rename doesn't strand saved settings. Idempotent, best-effort."""
+    new = os.path.dirname(config_path())                   # ~/.config/vigili
+    old = os.path.join(os.path.dirname(new), "vigil")      # ~/.config/vigil
+    if old == new:
+        return
+    try:
+        if os.path.isdir(old) and not os.path.exists(new):
+            os.rename(old, new)
+    except OSError:
+        pass
+
+
 _NUM_BOUNDS = {
     "away_rssi": (-127, 0), "present_rssi": (-127, 0),
     "grace_seconds": (0, 3600), "absence_timeout": (0, 3600),
@@ -146,9 +160,10 @@ def _sanitize(cfg: dict) -> dict:
 
 
 def load_config(path: str) -> dict:
+    migrate_legacy_config_dir()
     cfg = dict(DEFAULT_CONFIG)
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             raise ValueError(f"expected a JSON object, got {type(data).__name__}")
@@ -648,7 +663,7 @@ def run_menubar(args, cfg, path):
 
     class ProximityBar(rumps.App):
         def __init__(self):
-            super().__init__("📡 Vigil", quit_button=None)
+            super().__init__("📡 Vigili", quit_button=None)
             self.arm_item = rumps.MenuItem("Arm", callback=self.toggle_arm)
             self.status_item = rumps.MenuItem("Status: monitoring (disarmed)")
             self.rssi_item = rumps.MenuItem("RSSI: --")
@@ -666,7 +681,7 @@ def run_menubar(args, cfg, path):
                 rumps.MenuItem("Grace period…", callback=self.set_grace),
                 None,
                 rumps.MenuItem("Lock now (test)", callback=self.lock_now),
-                rumps.MenuItem("Quit Vigil", callback=self.quit_app),
+                rumps.MenuItem("Quit Vigili", callback=self.quit_app),
             ]
             self._timer = rumps.Timer(self.tick, 1.0)
             self._timer.start()
@@ -679,7 +694,7 @@ def run_menubar(args, cfg, path):
         def _has_device(self):
             return bool(cfg.get("device_identifier") or cfg.get("device_name"))
 
-        def _prompt(self, message, default, title="Vigil"):
+        def _prompt(self, message, default, title="Vigili"):
             w = rumps.Window(message=message, title=title,
                              default_text=str(default), ok="Save", cancel="Cancel",
                              dimensions=(220, 22))
@@ -693,7 +708,7 @@ def run_menubar(args, cfg, path):
                 self.arm_item.title = "Arm"
             else:
                 if not self._has_device():
-                    rumps.alert("Vigil", "Pick a device first (Pick device…).")
+                    rumps.alert("Vigili", "Pick a device first (Pick device…).")
                     return
                 monitor.reset_warmup()
                 monitor.locking_enabled = True
@@ -703,7 +718,7 @@ def run_menubar(args, cfg, path):
             devs = sorted(monitor.seen_resolvable.items(),
                           key=lambda kv: kv[1]["rssi"], reverse=True)
             if not devs:
-                rumps.alert("Vigil", "No resolvable devices seen yet. Make sure "
+                rumps.alert("Vigili", "No resolvable devices seen yet. Make sure "
                             "your device is paired, nearby, and Bluetooth is on.")
                 return
             listing = "\n".join(f"{i}: {d['name']}  ({d['rssi']} dBm)"
@@ -718,7 +733,7 @@ def run_menubar(args, cfg, path):
                     raise IndexError
                 uid, d = devs[idx]
             except (ValueError, IndexError):
-                rumps.alert("Vigil", "Invalid selection.")
+                rumps.alert("Vigili", "Invalid selection.")
                 return
             cfg["device_identifier"] = uid
             cfg["device_name"] = d["name"]
@@ -737,10 +752,10 @@ def run_menubar(args, cfg, path):
             try:
                 num = float(val)
             except ValueError:
-                rumps.alert("Vigil", "Please enter a number.")
+                rumps.alert("Vigili", "Please enter a number.")
                 return
             if not math.isfinite(num):
-                rumps.alert("Vigil", "Please enter a finite number.")
+                rumps.alert("Vigili", "Please enter a finite number.")
                 return
             cfg[key] = num
             save_config(path, cfg)
@@ -759,7 +774,7 @@ def run_menubar(args, cfg, path):
 
         def lock_now(self, _):
             method = lock_screen()
-            rumps.notification("Vigil", "Test lock", f"locked via {method}")
+            rumps.notification("Vigili", "Test lock", f"locked via {method}")
 
         def quit_app(self, _):
             monitor.stop()
@@ -792,7 +807,7 @@ def run_menubar(args, cfg, path):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        description="Vigil proximity lock (CoreBluetooth). Locks when your "
+        description="Vigili proximity lock (CoreBluetooth). Locks when your "
                     "paired device goes out of range; never unlocks.")
     p.add_argument("--scan", action="store_true",
                    help="list nearby resolvable devices and exit")

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Vigil — combined app: proximity lock + motion alarm in ONE process.
+Vigili — combined app: proximity lock + motion alarm in ONE process.
 
-Two front ends over one shared engine (VigilCore):
+Two front ends over one shared engine (VigiliCore):
   * a real **window GUI** (default) — a control panel with buttons, live meters,
     and editable numeric fields for every setting;
   * a **menu-bar** app (`--menubar`) — the same thing folded into the status bar.
@@ -14,17 +14,17 @@ PRIVILEGE MODEL (read this)
   proximity lock → CoreBluetooth (needs the app's Bluetooth TCC permission)
   motion alarm   → the SPU accelerometer HID (needs **root**)
 
-One process can't cleanly have both, so Vigil degrades:
+One process can't cleanly have both, so Vigili degrades:
 
-    python3 vigil.py            → proximity only  (motion shows "needs sudo")
-    sudo -E python3 vigil.py    → both halves
+    python3 vigili.py            → proximity only  (motion shows "needs sudo")
+    sudo -E python3 vigili.py    → both halves
 
 CAVEAT (untested by the author — no root here): under sudo, CoreBluetooth also
 runs as root, and Bluetooth-TCC-under-sudo on macOS 27 is unverified. If the
 proximity half shows "Bluetooth unavailable" under sudo, run
 `python3 proximity_lock.py --menubar` as your normal user for proximity instead.
 
-Config: ~/.config/vigil/vigil.json (one file, written owner-only, chowned to you).
+Config: ~/.config/vigili/vigili.json (one file, written owner-only, chowned to you).
 """
 
 from __future__ import annotations
@@ -86,10 +86,20 @@ _NUM_BOUNDS = {
 }
 
 
+def resource_base() -> str:
+    """Directory that holds bundled resources — assets/, motion_helper.py, and a
+    macimu/ source copy. Inside a py2app bundle that's Contents/Resources; running
+    from source it's this file's directory. Used so the app finds its files whether
+    it's a real .app or a `python vigili.py` dev run."""
+    if getattr(sys, "frozen", False):
+        return os.environ.get("RESOURCEPATH") or os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def config_path() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
         motion.resolve_home(), ".config")
-    return os.path.join(base, "vigil", "vigil.json")
+    return os.path.join(base, "vigili", "vigili.json")
 
 
 def _sanitize(cfg: dict) -> dict:
@@ -113,9 +123,10 @@ def _sanitize(cfg: dict) -> dict:
 
 
 def load_config() -> dict:
+    motion.migrate_legacy_config_dir()
     cfg = dict(DEFAULTS)
     try:
-        with open(config_path()) as fh:
+        with open(config_path(), encoding="utf-8") as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             raise ValueError(f"expected a JSON object, got {type(data).__name__}")
@@ -151,16 +162,16 @@ def clamp_num(key, raw, cfg):
 
 def export_config(path: str, cfg: dict) -> None:
     """Write the current settings to a user-chosen file (plain JSON)."""
-    with open(os.path.expanduser(path), "w") as fh:
+    with open(os.path.expanduser(path), "w", encoding="utf-8") as fh:
         json.dump(cfg, fh, indent=2)
 
 
 def import_config(path: str) -> dict:
     """Read + validate + sanitize settings from a file. Returns a full cfg dict."""
-    with open(os.path.expanduser(path)) as fh:
+    with open(os.path.expanduser(path), encoding="utf-8") as fh:
         data = json.load(fh)
     if not isinstance(data, dict):
-        raise ValueError("that file isn't a Vigil settings object")
+        raise ValueError("that file isn't a Vigili settings object")
     merged = dict(DEFAULTS)
     merged.update(data)
     return _sanitize(merged)
@@ -245,22 +256,30 @@ def _helper_python():
 
 
 def _stage_root_helper():
-    """Copy motion_helper.py + the macimu package into ~/.config/vigil/helper.
+    """Copy motion_helper.py + the macimu package into ~/.config/vigili/helper.
 
     The root helper (launched via the admin prompt) is blocked by macOS TCC from
     reading ~/Documents, where the project + venv live — so we stage everything it
     needs into ~/.config (not TCC-protected) and run it with the system python."""
     import shutil
+    base = resource_base()
     d = os.path.join(os.path.dirname(config_path()), "helper")
     os.makedirs(d, exist_ok=True)
-    shutil.copy2(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "motion_helper.py"),
-        os.path.join(d, "motion_helper.py"))
-    import macimu
+    shutil.copy2(os.path.join(base, "motion_helper.py"),
+                 os.path.join(d, "motion_helper.py"))
+    # macimu must reach the helper as plain source — the root helper runs under the
+    # system python3, not the app's. Prefer a bundled source copy; a frozen macimu
+    # inside the .app isn't a copyable directory, so importing it only works from
+    # source.
+    bundled = os.path.join(base, "macimu")
+    if os.path.isdir(bundled):
+        macimu_src = bundled
+    else:
+        import macimu
+        macimu_src = os.path.dirname(macimu.__file__)
     dst = os.path.join(d, "macimu")
     shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(os.path.dirname(macimu.__file__), dst,
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(macimu_src, dst, ignore=shutil.ignore_patterns("__pycache__"))
     return d
 
 
@@ -275,7 +294,7 @@ def launch_motion_helper(control, data):
             os.remove(data)
         except OSError:
             pass
-        with open(control, "w") as fh:
+        with open(control, "w", encoding="utf-8") as fh:
             json.dump({"armed": False, "threshold_g": 0.06, "arm_grace_s": 4.0,
                        "arm_seq": 0, "stop": False}, fh)
     except Exception as exc:
@@ -288,7 +307,7 @@ def launch_motion_helper(control, data):
     inner = (f"( PYTHONPATH={shlex.quote(staged)} {shlex.quote(py)} "
              f"{shlex.quote(helper)} "
              f"--control {shlex.quote(control)} --data {shlex.quote(data)} "
-             f"</dev/null >/tmp/vigil_helper.log 2>&1 & )")
+             f"</dev/null >/tmp/vigili_helper.log 2>&1 & )")
     osa = ('do shell script "' + inner.replace('\\', '\\\\').replace('"', '\\"')
            + '" with administrator privileges')
     try:
@@ -309,7 +328,7 @@ def launch_motion_helper(control, data):
         time.sleep(0.2)
     tail = ""
     try:
-        with open("/tmp/vigil_helper.log") as fh:
+        with open("/tmp/vigili_helper.log", encoding="utf-8") as fh:
             lines = fh.read().strip().splitlines()
             tail = lines[-1] if lines else ""
     except OSError:
@@ -320,7 +339,7 @@ def launch_motion_helper(control, data):
 class RemoteMotionSensor(threading.Thread):
     """Drop-in for MotionSensor that sources data from the root helper's files.
 
-    Same interface VigilCore uses: arm/disarm/stop, armed, latest_disturbance,
+    Same interface VigiliCore uses: arm/disarm/stop, armed, latest_disturbance,
     trigger_value, triggered, sample_starved, error, is_alive, is_dead.
     """
 
@@ -348,7 +367,7 @@ class RemoteMotionSensor(threading.Thread):
                    "stop": self._stop.is_set()}
         try:
             tmp = self._control + ".tmp"
-            with open(tmp, "w") as fh:
+            with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh)
             os.replace(tmp, self._control)   # refreshes mtime = keepalive to helper
         except OSError as exc:
@@ -381,7 +400,7 @@ class RemoteMotionSensor(threading.Thread):
             seq = latest = trig = starved = None
             trig_val = 0.0
             try:
-                with open(self._data) as fh:
+                with open(self._data, encoding="utf-8") as fh:
                     parts = fh.read().split()
                 seq = int(parts[0]); latest = float(parts[1])
                 trig = int(parts[2]); starved = int(parts[3])
@@ -411,7 +430,7 @@ class RemoteMotionSensor(threading.Thread):
 
 # ---- shared logic (UI-agnostic) --------------------------------------------
 
-class VigilCore:
+class VigiliCore:
     """All arming / alarm / lock-wiring logic. Front ends only render + call in."""
 
     def __init__(self, cfg, engines, notify=None):
@@ -533,7 +552,7 @@ class VigilCore:
         self.alarm_start = now
         if self.cfg.get("silent_mode"):
             self.silent_active = True
-            self.notify("Vigil — MOTION DETECTED", "silent mode",
+            self.notify("Vigili — MOTION DETECTED", "silent mode",
                         f"moved {self.sensor.trigger_value*1000:.0f} mg "
                         f"(threshold {self.cfg['threshold_g']*1000:.0f} mg)")
         elif self.alarm:
@@ -559,10 +578,10 @@ class VigilCore:
             if (self.cfg.get("link_lock_to_motion") and locked
                     and not self.prev_locked and not self.sensor.armed):
                 self.arm_motion()
-                self.notify("Vigil", "Motion alarm armed", "screen locked")
+                self.notify("Vigili", "Motion alarm armed", "screen locked")
             if self.sensor.armed and self.prev_locked and not locked:
                 self.disarm_motion()
-                self.notify("Vigil", "Motion alarm disarmed", "welcome back")
+                self.notify("Vigili", "Motion alarm disarmed", "welcome back")
         self.prev_locked = locked
 
         if self.sensor:
@@ -583,7 +602,7 @@ class VigilCore:
             if (self.sensor.is_dead() and self.sensor.armed
                     and not self._sensor_fail_alerted):
                 self._sensor_fail_alerted = True
-                self.notify("Vigil", "Motion sensor stopped",
+                self.notify("Vigili", "Motion sensor stopped",
                             "NOT protected — motion detection failed.")
             elif not self.sensor.is_dead():
                 self._sensor_fail_alerted = False
@@ -637,7 +656,7 @@ class VigilCore:
 # ---- window GUI front end ---------------------------------------------------
 
 def run_window(cfg, want_motion, motion_reason):
-    """Carbon-styled UI rendered in a WKWebView; logic stays in VigilCore."""
+    """Carbon-styled UI rendered in a WKWebView; logic stays in VigiliCore."""
     from AppKit import (NSApplication, NSWindow, NSImage, NSMenu, NSMenuItem,
                         NSColor, NSSavePanel, NSOpenPanel,
                         NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
@@ -649,14 +668,14 @@ def run_window(cfg, want_motion, motion_reason):
         from WebKit import (WKWebView, WKWebViewConfiguration,
                             WKUserContentController)
     except ImportError:
-        sys.exit("Vigil's window needs pyobjc-framework-WebKit.\n"
+        sys.exit("Vigili's window needs pyobjc-framework-WebKit.\n"
                  "  pip install pyobjc-framework-WebKit\n"
-                 "(or run the venv python / re-run 'Install Vigil.command', "
+                 "(or run the venv python / re-run 'Install Vigili.command', "
                  "or use --menubar).")
 
     engines = _setup_engines(cfg, want_motion, motion_reason)
     SCALE = {"threshold_g": 1000.0}
-    base = os.path.dirname(os.path.abspath(__file__))
+    base = resource_base()
 
     def _system_dark():
         try:
@@ -669,7 +688,7 @@ def run_window(cfg, want_motion, motion_reason):
 
     def _resolve_theme():
         # env override (dev) wins, else the saved config; "auto" follows macOS.
-        mode = os.environ.get("VIGIL_THEME", "").lower() or cfg.get("theme", "auto")
+        mode = os.environ.get("VIGILI_THEME", "").lower() or cfg.get("theme", "auto")
         if mode == "system":
             mode = "auto"
         if mode not in ("auto", "light", "dark"):
@@ -678,11 +697,11 @@ def run_window(cfg, want_motion, motion_reason):
         return mode, dark
 
     def _load_html():
-        with open(os.path.join(base, "assets", "carbon_ui.html")) as fh:
+        with open(os.path.join(base, "assets", "carbon_ui.html"), encoding="utf-8") as fh:
             html = fh.read()
         faces = ""
         try:
-            with open(os.path.join(base, "assets", "fonts", "plex_b64.json")) as fh:
+            with open(os.path.join(base, "assets", "fonts", "plex_b64.json"), encoding="utf-8") as fh:
                 for key, b64 in json.load(fh).items():
                     fam, wt = key.split("|")
                     faces += (f"@font-face{{font-family:'{fam}';font-style:normal;"
@@ -695,7 +714,7 @@ def run_window(cfg, want_motion, motion_reason):
     class Bridge(NSObject):
         @objc.python_method
         def setup(self):
-            self.core = VigilCore(cfg, engines, notify=self._notify)
+            self.core = VigiliCore(cfg, engines, notify=self._notify)
             self._nstimer = None
             self._torn = False
             self._last_dark = None
@@ -736,7 +755,7 @@ def run_window(cfg, want_motion, motion_reason):
         def _push_init(self):
             mode, dark = _resolve_theme()
             self._last_dark = dark
-            self._js("vigilInit", {
+            self._js("vigiliInit", {
                 "theme": {"mode": mode, "dark": dark},
                 "fields": self._fields_payload(),
                 "silent": bool(cfg.get("silent_mode")),
@@ -804,9 +823,9 @@ def run_window(cfg, want_motion, motion_reason):
                     cfg["lock_method"] = m
                     save_config(cfg)
                     if m == "keystroke" and not _accessibility_trusted():
-                        # pops the system Accessibility prompt (adds Vigil to the list)
+                        # pops the system Accessibility prompt (adds Vigili to the list)
                         _accessibility_prompt()
-                        self._set_banner("Allow Vigil in the Accessibility window "
+                        self._set_banner("Allow Vigili in the Accessibility window "
                                          "that just opened, so ⌃⌘Q can keep the "
                                          "display on.", "warn")
                     elif m == "keystroke":
@@ -837,7 +856,7 @@ def run_window(cfg, want_motion, motion_reason):
         def _reset_field(self, key):
             scale = SCALE.get(key, 1.0)
             shown = round(cfg[key] * scale) if scale != 1.0 else cfg[key]
-            self._js2("vigilField", json.dumps(key), json.dumps(shown))
+            self._js2("vigiliField", json.dumps(key), json.dumps(shown))
 
         @objc.python_method
         def _js2(self, fn, a, b):
@@ -881,7 +900,7 @@ def run_window(cfg, want_motion, motion_reason):
         @objc.python_method
         def _export(self):
             panel = NSSavePanel.savePanel()
-            panel.setNameFieldStringValue_("vigil-settings.json")
+            panel.setNameFieldStringValue_("vigili-settings.json")
             if panel.runModal() == 1:
                 try:
                     export_config(panel.URL().path(), cfg)
@@ -987,7 +1006,7 @@ def run_window(cfg, want_motion, motion_reason):
                 else:
                     header, hk = "Monitoring", ""
 
-            self._js("vigilTick", {
+            self._js("vigiliTick", {
                 "p": {"armed": core.proximity_armed(), "tagText": p_tag, "tag": p_tk,
                       "rssi": "—" if rssi is None else f"{rssi:.0f} dBm", "pct": pct,
                       "devices": devices, "device": cfg.get("device_identifier") or ""},
@@ -1026,7 +1045,7 @@ def run_window(cfg, want_motion, motion_reason):
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
-    icns = os.path.join(base, "assets", "Vigil.icns")
+    icns = os.path.join(base, "assets", "Vigili.icns")
     if os.path.exists(icns):
         _img = NSImage.alloc().initWithContentsOfFile_(icns)
         if _img is not None:
@@ -1034,7 +1053,7 @@ def run_window(cfg, want_motion, motion_reason):
     try:
         _info = NSBundle.mainBundle().infoDictionary()
         if _info is not None:
-            _info["CFBundleName"] = "Vigil"
+            _info["CFBundleName"] = "Vigili"
     except Exception:
         pass
 
@@ -1042,9 +1061,9 @@ def run_window(cfg, want_motion, motion_reason):
     app_item = NSMenuItem.alloc().init()
     mainmenu.addItem_(app_item)
     app_menu = NSMenu.alloc().init()
-    app_menu.addItemWithTitle_action_keyEquivalent_("Hide Vigil", b"hide:", "h")
+    app_menu.addItemWithTitle_action_keyEquivalent_("Hide Vigili", b"hide:", "h")
     app_menu.addItem_(NSMenuItem.separatorItem())
-    app_menu.addItemWithTitle_action_keyEquivalent_("Quit Vigil", b"terminate:", "q")
+    app_menu.addItemWithTitle_action_keyEquivalent_("Quit Vigili", b"terminate:", "q")
     app_item.setSubmenu_(app_menu)
     edit_item = NSMenuItem.alloc().init()
     mainmenu.addItem_(edit_item)
@@ -1063,7 +1082,7 @@ def run_window(cfg, want_motion, motion_reason):
              | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
         NSMakeRect(0, 0, 900, 700), style, NSBackingStoreBuffered, False)
-    win.setTitle_("Vigil")
+    win.setTitle_("Vigili")
     win.setReleasedWhenClosed_(False)
     win.setDelegate_(bridge)
     win.setMinSize_((520, 560))
@@ -1072,7 +1091,7 @@ def run_window(cfg, want_motion, motion_reason):
 
     conf = WKWebViewConfiguration.alloc().init()
     ucc = WKUserContentController.alloc().init()
-    ucc.addScriptMessageHandler_name_(bridge, "vigil")
+    ucc.addScriptMessageHandler_name_(bridge, "vigili")
     conf.setUserContentController_(ucc)
     web = WKWebView.alloc().initWithFrame_configuration_(
         NSMakeRect(0, 0, 900, 700), conf)
@@ -1105,10 +1124,10 @@ def run_menubar(cfg, want_motion, motion_reason):
     import rumps
     engines = _setup_engines(cfg, want_motion, motion_reason)
 
-    class VigilBar(rumps.App):
+    class VigiliBar(rumps.App):
         def __init__(self):
-            super().__init__("🛡︎ Vigil", quit_button=None)
-            self.core = VigilCore(cfg, engines,
+            super().__init__("🛡︎ Vigili", quit_button=None)
+            self.core = VigiliCore(cfg, engines,
                                   notify=lambda t, s, m: rumps.notification(t, s, m))
             self.p_arm = rumps.MenuItem("Arm proximity lock", callback=self.p_toggle)
             self.p_status = rumps.MenuItem("Proximity: —")
@@ -1138,7 +1157,7 @@ def run_menubar(cfg, want_motion, motion_reason):
                 rumps.MenuItem("Save settings", callback=self.save_settings),
                 rumps.MenuItem("Export settings…", callback=self.export_settings),
                 rumps.MenuItem("Import settings…", callback=self.import_settings),
-                rumps.MenuItem("Quit Vigil", callback=self.quit_app),
+                rumps.MenuItem("Quit Vigili", callback=self.quit_app),
             ]
             self.prev_locked = screen_is_locked()
             hb = min(5.0, max(0.1, float(cfg["heartbeat_s"])))
@@ -1158,11 +1177,11 @@ def run_menubar(cfg, want_motion, motion_reason):
             if self.core.proximity_armed():
                 self.core.disarm_proximity()
             elif not self.core.arm_proximity():
-                rumps.alert("Vigil", "Pick a device first.")
+                rumps.alert("Vigili", "Pick a device first.")
 
         def m_toggle(self, _):
             if not engines["want_motion"]:
-                rumps.alert("Vigil", "Motion unavailable.\n" + (engines["motion_reason"] or ""))
+                rumps.alert("Vigili", "Motion unavailable.\n" + (engines["motion_reason"] or ""))
                 return
             self.core.disarm_motion() if self.core.motion_armed() else self.core.arm_motion()
 
@@ -1175,23 +1194,23 @@ def run_menubar(cfg, want_motion, motion_reason):
                 self.core.test_alarm()
 
         def lock_now(self, _):
-            rumps.notification("Vigil", "Test lock", f"locked via {self.core.lock_now()}")
+            rumps.notification("Vigili", "Test lock", f"locked via {self.core.lock_now()}")
 
         def save_settings(self, _):
             save_config(cfg)
-            rumps.notification("Vigil", "Settings saved", config_path())
+            rumps.notification("Vigili", "Settings saved", config_path())
 
         def export_settings(self, _):
             from AppKit import NSSavePanel
             panel = NSSavePanel.savePanel()
-            panel.setNameFieldStringValue_("vigil-settings.json")
+            panel.setNameFieldStringValue_("vigili-settings.json")
             if panel.runModal() != 1:
                 return
             try:
                 export_config(panel.URL().path(), cfg)
-                rumps.notification("Vigil", "Exported", panel.URL().path())
+                rumps.notification("Vigili", "Exported", panel.URL().path())
             except OSError as exc:
-                rumps.alert("Vigil", f"Export failed: {exc}")
+                rumps.alert("Vigili", f"Export failed: {exc}")
 
         def import_settings(self, _):
             from AppKit import NSOpenPanel
@@ -1204,7 +1223,7 @@ def run_menubar(cfg, want_motion, motion_reason):
             try:
                 merged = import_config(panel.URLs()[0].path())
             except (OSError, ValueError) as exc:
-                rumps.alert("Vigil", f"Import failed: {exc}")
+                rumps.alert("Vigili", f"Import failed: {exc}")
                 return
             cfg.clear()
             cfg.update(merged)
@@ -1215,16 +1234,16 @@ def run_menubar(cfg, want_motion, motion_reason):
             self.silent.title = self._silent_label()
             self.p_device.title = self._dev_label()
             self._reschedule(cfg["heartbeat_s"])
-            rumps.notification("Vigil", "Settings imported", "applied")
+            rumps.notification("Vigili", "Settings imported", "applied")
 
         def pick_device(self, _):
             devs = self.core.resolvable_devices()
             if not devs:
-                rumps.alert("Vigil", "No resolvable devices seen yet.")
+                rumps.alert("Vigili", "No resolvable devices seen yet.")
                 return
             listing = "\n".join(f"{i}: {d['name']} ({d['rssi']} dBm)"
                                 for i, (_u, d) in enumerate(devs))
-            w = rumps.Window(message=f"Type the number:\n{listing}", title="Vigil",
+            w = rumps.Window(message=f"Type the number:\n{listing}", title="Vigili",
                              default_text="0", ok="Set", cancel="Cancel", dimensions=(240, 22))
             r = w.run()
             if not r.clicked:
@@ -1235,13 +1254,13 @@ def run_menubar(cfg, want_motion, motion_reason):
                     raise IndexError
                 uid, d = devs[idx]
             except (ValueError, IndexError):
-                rumps.alert("Vigil", "Invalid selection.")
+                rumps.alert("Vigili", "Invalid selection.")
                 return
             self.core.pick_device(uid, d["name"])
             self.p_device.title = self._dev_label()
 
         def _prompt(self, key, scale=1.0, reschedule=False):
-            w = rumps.Window(message=f"New value for {key}:", title="Vigil",
+            w = rumps.Window(message=f"New value for {key}:", title="Vigili",
                              default_text=f"{cfg[key]*scale:g}", ok="Save",
                              cancel="Cancel", dimensions=(200, 22))
             r = w.run()
@@ -1250,12 +1269,12 @@ def run_menubar(cfg, want_motion, motion_reason):
             try:
                 entered = float(r.text.strip()) / scale
             except ValueError:
-                rumps.alert("Vigil", "Please enter a number.")
+                rumps.alert("Vigili", "Please enter a number.")
                 return
             ok, val = clamp_num(key, entered, cfg)
             if not ok:
                 lo, hi = _NUM_BOUNDS[key]
-                rumps.alert("Vigil", f"{key} must be between {lo*scale:g} and {hi*scale:g}.")
+                rumps.alert("Vigili", f"{key} must be between {lo*scale:g} and {hi*scale:g}.")
                 return
             self.core.set_value(key, val)
             if key == "threshold_g":
@@ -1297,7 +1316,7 @@ def run_menubar(cfg, want_motion, motion_reason):
                 bits.append("🔴")
             self.title = "🛡︎" + ("" if not bits else " " + "".join(bits))
 
-    app = VigilBar()
+    app = VigiliBar()
     try:
         app.run()
     finally:
@@ -1320,7 +1339,7 @@ def decide_motion():
 
 def main(argv=None):
     p = argparse.ArgumentParser(
-        description="Vigil — combined proximity-lock + motion-alarm app.")
+        description="Vigili — combined proximity-lock + motion-alarm app.")
     p.add_argument("--menubar", action="store_true",
                    help="run as a menu-bar app instead of the window GUI")
     p.add_argument("--silent", action="store_true", help="start motion silent mode on")
@@ -1341,10 +1360,10 @@ def main(argv=None):
     if not has_gui_session():
         print("WARNING: no GUI (Aqua) session — launch from a Terminal in your "
               "login session, not ssh/LaunchDaemon.", file=sys.stderr)
-    print(f"Vigil starting — proximity: on, motion: "
+    print(f"Vigili starting — proximity: on, motion: "
           f"{'on' if want_motion else 'OFF (' + reason + ')'}")
     if not want_motion and reason == "needs sudo -E (root)":
-        print("  (re-run with:  sudo -E python3 vigil.py  for the motion alarm)")
+        print("  (re-run with:  sudo -E python3 vigili.py  for the motion alarm)")
 
     if args.menubar:
         run_menubar(cfg, want_motion, reason)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Vigil launcher.
+# Vigili launcher.
 #
-# The simplest path is the COMBINED app (vigil.py): one menu bar, both halves.
+# The simplest path is the COMBINED app (vigili.py): one menu bar, both halves.
 # Run it with sudo -E to enable the motion alarm (proximity works either way).
 #
 # The split mode (separate processes) is kept for when CoreBluetooth won't run
@@ -10,26 +10,26 @@
 # screen-lock state (proximity locks -> motion --arm-on-lock arms; unlock disarms).
 #
 # Usage:
-#   ./vigil              # combined app (sudo -E => both halves)
-#   ./vigil user         # combined app as your user (proximity only, no sudo)
-#   ./vigil split        # split: proximity (your user, bg) + motion alarm (sudo)
-#   ./vigil stop         # stop the background proximity lock from split mode
+#   ./vigili              # combined app (sudo -E => both halves)
+#   ./vigili user         # combined app as your user (proximity only, no sudo)
+#   ./vigili split        # split: proximity (your user, bg) + motion alarm (sudo)
+#   ./vigili stop         # stop the background proximity lock from split mode
 #
-# Point PYBIN at the venv you installed requirements.txt into (VIGIL_PY overrides).
+# Point PYBIN at the venv you installed requirements.txt into (VIGILI_PY overrides).
 
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYBIN="${VIGIL_PY:-$HERE/.venv/bin/python3}"
-PIDFILE="${TMPDIR:-/tmp}/vigil-proximity.pid"
+PYBIN="${VIGILI_PY:-$HERE/.venv/bin/python3}"
+PIDFILE="${TMPDIR:-/tmp}/vigili-proximity.pid"
 
 start_proximity() {
   if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "proximity lock already running (pid $(cat "$PIDFILE"))"
     return
   fi
-  "$PYBIN" "$HERE/proximity_lock.py" >>"${TMPDIR:-/tmp}/vigil-proximity.log" 2>&1 &
+  "$PYBIN" "$HERE/proximity_lock.py" >>"${TMPDIR:-/tmp}/vigili-proximity.log" 2>&1 &
   echo $! >"$PIDFILE"
-  echo "proximity lock started (pid $!), logging to ${TMPDIR:-/tmp}/vigil-proximity.log"
+  echo "proximity lock started (pid $!), logging to ${TMPDIR:-/tmp}/vigili-proximity.log"
 }
 
 stop_proximity() {
@@ -43,8 +43,8 @@ stop_proximity() {
 }
 
 case "${1:-combined}" in
-  combined) exec sudo -E "$PYBIN" "$HERE/vigil.py" ;;
-  user)     exec "$PYBIN" "$HERE/vigil.py" ;;
+  combined) exec sudo -E "$PYBIN" "$HERE/vigili.py" ;;
+  user)     exec "$PYBIN" "$HERE/vigili.py" ;;
   split)
     start_proximity
     echo "launching motion alarm (needs sudo; menu bar item will appear)…"

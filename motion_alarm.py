@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vigil — Part 2: motion_alarm.py
+Vigili — Part 2: motion_alarm.py
 
 A menu-bar (rumps) tripwire. While ARMED, it watches the Mac's built-in
 accelerometer; if the machine is moved past a tunable threshold it blasts a
@@ -42,7 +42,7 @@ USAGE
     sudo -E python3 motion_alarm.py --arm-on-lock   # also auto-arm when screen locks
 
 Tunables: --threshold (g), --max-alarm (s), --sound PATH. Config persists to
-~/.config/vigil/motion.json (stored under your real home even under sudo).
+~/.config/vigili/motion.json (stored under your real home even under sudo).
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ import wave
 
 # ---- config / paths ---------------------------------------------------------
 
-APP_DIR_NAME = "vigil"
+APP_DIR_NAME = "vigili"
 CONFIG_BASENAME = "motion.json"
 
 DEFAULTS = {
@@ -94,6 +94,21 @@ def config_path() -> str:
     return os.path.join(base, APP_DIR_NAME, CONFIG_BASENAME)
 
 
+def migrate_legacy_config_dir() -> None:
+    """One-time: rename the old ~/.config/vigil directory to ~/.config/vigili so
+    the app rename doesn't strand a paired device + saved settings. Idempotent
+    and best-effort (a failure just means starting from defaults)."""
+    new = os.path.dirname(config_path())                   # ~/.config/vigili
+    old = os.path.join(os.path.dirname(new), "vigil")      # ~/.config/vigil
+    if old == new:
+        return
+    try:
+        if os.path.isdir(old) and not os.path.exists(new):
+            os.rename(old, new)
+    except OSError:
+        pass
+
+
 _NUM_BOUNDS = {
     "threshold_g": (0.001, 10), "max_alarm_s": (0.001, 86400),
     "cooldown_s": (0, 3600), "arm_grace_s": (0, 3600),
@@ -119,9 +134,10 @@ def _sanitize(cfg: dict) -> dict:
 
 
 def load_config() -> dict:
+    migrate_legacy_config_dir()
     cfg = dict(DEFAULTS)
     try:
-        with open(config_path()) as fh:
+        with open(config_path(), encoding="utf-8") as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             raise ValueError(f"expected a JSON object, got {type(data).__name__}")
@@ -142,7 +158,8 @@ def _sudo_ids() -> tuple[int, int] | None:
 
 
 def ensure_config_dir() -> str:
-    """Create ~/.config/vigil owner-only and owned by the real user (not root)."""
+    """Create ~/.config/vigili owner-only and owned by the real user (not root)."""
+    migrate_legacy_config_dir()
     d = os.path.dirname(config_path())
     os.makedirs(d, mode=0o700, exist_ok=True)
     ids = _sudo_ids()
@@ -477,9 +494,9 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
     sensor = MotionSensor(imu, cfg)
     alarm = AlarmPlayer(siren)
 
-    class VigilMotion(rumps.App):
+    class VigiliMotion(rumps.App):
         def __init__(self):
-            super().__init__("🛡︎ Vigil", quit_button=None)
+            super().__init__("🛡︎ Vigili", quit_button=None)
             self.arm_item = rumps.MenuItem("Arm", callback=self.toggle_arm)
             self.status_item = rumps.MenuItem("Status: idle")
             self.motion_item = rumps.MenuItem("motion: --")
@@ -500,7 +517,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
                 None,
                 self.silent_item,
                 rumps.MenuItem("Test alarm (3s)", callback=self.test_siren),
-                rumps.MenuItem("Quit Vigil", callback=self.quit_app),
+                rumps.MenuItem("Quit Vigili", callback=self.quit_app),
             ]
 
             # alarm/session bookkeeping (all touched only on the main thread)
@@ -514,7 +531,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
             self._timer.start()
 
             if sensor.error:
-                rumps.alert("Vigil", f"sensor error: {sensor.error}")
+                rumps.alert("Vigili", f"sensor error: {sensor.error}")
 
         # -- menu callbacks (main thread) --
         def toggle_arm(self, _):
@@ -541,7 +558,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
             if cfg.get("silent_mode"):
                 self.silent_active = True
                 rumps.notification(
-                    "Vigil — MOTION DETECTED", "silent mode",
+                    "Vigili — MOTION DETECTED", "silent mode",
                     f"moved {sensor.trigger_value*1000:.0f} mg "
                     f"(threshold {cfg['threshold_g']*1000:.0f} mg)")
             else:
@@ -580,7 +597,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
             save_config(cfg)
 
         def _prompt_number(self, key, message):
-            w = rumps.Window(message=message, title="Vigil",
+            w = rumps.Window(message=message, title="Vigili",
                              default_text=str(cfg[key]), ok="Save", cancel="Cancel",
                              dimensions=(200, 22))
             resp = w.run()
@@ -589,13 +606,13 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
             try:
                 val = float(resp.text.strip())
             except ValueError:
-                rumps.alert("Vigil", "Please enter a number.")
+                rumps.alert("Vigili", "Please enter a number.")
                 return
             # arm_grace may be 0 (no grace); other durations must be positive. Reject
             # inf/NaN, which would silently disable the safety cap / motion trigger.
             floor = 0.0 if key == "arm_grace_s" else 0.001
             if not math.isfinite(val) or val < floor:
-                rumps.alert("Vigil", "Please enter a valid positive number.")
+                rumps.alert("Vigili", "Please enter a valid positive number.")
                 return
             cfg[key] = val
             save_config(cfg)
@@ -666,7 +683,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
                 if (not sensor.is_alive() and sensor.armed
                         and not getattr(self, "_sensor_fail_alerted", False)):
                     self._sensor_fail_alerted = True
-                    rumps.notification("Vigil", "Motion sensor stopped",
+                    rumps.notification("Vigili", "Motion sensor stopped",
                                        f"NOT protected — {sensor.error or 'thread died'}")
             elif sensor.sample_starved and sensor.armed:
                 state = "NO SENSOR DATA"
@@ -686,7 +703,7 @@ def build_app(imu, cfg: dict, arm_on_lock: bool, siren_path: str | None = None):
             self.status_item.title = f"Status: {state}"
             self.motion_item.title = f"motion: {sensor.latest_disturbance*1000:5.0f} mg"
 
-    app = VigilMotion()
+    app = VigiliMotion()
     app._sensor = sensor   # exposed so main() can clean up on any exit path
     app._alarm = alarm
     return app
@@ -714,7 +731,7 @@ def run_check() -> int:
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Vigil motion alarm (menu bar).")
+    p = argparse.ArgumentParser(description="Vigili motion alarm (menu bar).")
     p.add_argument("--check", action="store_true",
                    help="run IMU.available() and exit (no root needed)")
     p.add_argument("--arm-on-lock", action="store_true",
@@ -779,7 +796,7 @@ def main(argv=None):
     try:
         app = build_app(imu, cfg, arm_on_lock=args.arm_on_lock,
                         siren_path=siren_override)
-        print("Vigil motion alarm running in the menu bar. Arm from there. "
+        print("Vigili motion alarm running in the menu bar. Arm from there. "
               "Ctrl-C or Quit to exit.")
         app.run()
     finally:

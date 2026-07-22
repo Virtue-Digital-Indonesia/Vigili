@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Vigil motion helper — runs as ROOT, reads the accelerometer, reports to the
-(unprivileged) Vigil GUI through two small files. The GUI launches this via a
+Vigili motion helper — runs as ROOT, reads the accelerometer, reports to the
+(unprivileged) Vigili GUI through two small files. The GUI launches this via a
 one-time macOS admin prompt (password or Touch ID), so the motion alarm needs
 no Terminal.
 
@@ -9,7 +9,7 @@ Why a helper at all: the SPU accelerometer is root-only, but CoreBluetooth (the
 proximity lock) works best as your normal user. So the GUI stays unprivileged
 and spins up this headless root helper just for the sensor.
 
-File protocol (both small, in ~/.config/vigil/):
+File protocol (both small, in ~/.config/vigili/):
   control  (GUI → helper), JSON: {armed, threshold_g, arm_grace_s, arm_seq, stop}
            The GUI rewrites it ~2×/s; its mtime is the GUI's "still alive" signal.
   data     (helper → GUI), one line: "seq latest_g trigger_seq starved mono"
@@ -31,7 +31,7 @@ import time
 
 def _read_control(path):
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -54,7 +54,7 @@ def _write_data(path, seq, latest_g, trig, starved, mono, trig_val_g=0.0):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Vigil root motion helper.")
+    ap = argparse.ArgumentParser(description="Vigili root motion helper.")
     ap.add_argument("--control", required=True)
     ap.add_argument("--data", required=True)
     ap.add_argument("--sample-rate", type=int, default=100)
