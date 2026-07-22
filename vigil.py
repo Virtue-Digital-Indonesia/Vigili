@@ -50,7 +50,8 @@ except ImportError:                              # pragma: no cover
 
 import motion_alarm as motion
 from proximity_lock import (ProximityMonitor, lock_screen, _make_central,
-                            _accessibility_trusted, PRESENT, AWAY)
+                            _accessibility_trusted, _accessibility_prompt,
+                            PRESENT, AWAY)
 from motion_alarm import (MotionSensor, AlarmPlayer, ensure_siren,
                           screen_is_locked, has_gui_session)
 
@@ -803,8 +804,13 @@ def run_window(cfg, want_motion, motion_reason):
                     cfg["lock_method"] = m
                     save_config(cfg)
                     if m == "keystroke" and not _accessibility_trusted():
-                        self._set_banner("Grant Vigil Accessibility (System Settings "
-                                         "▸ Privacy ▸ Accessibility) for ⌃⌘Q lock", "warn")
+                        # pops the system Accessibility prompt (adds Vigil to the list)
+                        _accessibility_prompt()
+                        self._set_banner("Allow Vigil in the Accessibility window "
+                                         "that just opened, so ⌃⌘Q can keep the "
+                                         "display on.", "warn")
+                    elif m == "keystroke":
+                        self._set_banner("Lock method: Keystroke ⌃⌘Q (display stays on)", "ok")
                     else:
                         self._set_banner(f"Lock method: {m}", "ok")
             elif action == "setTheme":
@@ -1056,7 +1062,7 @@ def run_window(cfg, want_motion, motion_reason):
     style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
              | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(0, 0, 940, 820), style, NSBackingStoreBuffered, False)
+        NSMakeRect(0, 0, 900, 700), style, NSBackingStoreBuffered, False)
     win.setTitle_("Vigil")
     win.setReleasedWhenClosed_(False)
     win.setDelegate_(bridge)
@@ -1069,7 +1075,7 @@ def run_window(cfg, want_motion, motion_reason):
     ucc.addScriptMessageHandler_name_(bridge, "vigil")
     conf.setUserContentController_(ucc)
     web = WKWebView.alloc().initWithFrame_configuration_(
-        NSMakeRect(0, 0, 940, 820), conf)
+        NSMakeRect(0, 0, 900, 700), conf)
     web.setNavigationDelegate_(bridge)
     web.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
     try:

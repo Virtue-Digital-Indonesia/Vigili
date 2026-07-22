@@ -197,6 +197,36 @@ def _accessibility_trusted() -> bool:
         return False
 
 
+def _accessibility_prompt() -> bool:
+    """Ask macOS for Accessibility — pops the system 'allow to control your
+    computer' prompt (adds this app to the list). Returns current trust state."""
+    try:
+        ax = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework"
+                         "/ApplicationServices")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework"
+                         "/CoreFoundation")
+        cf.CFDictionaryCreate.restype = ctypes.c_void_p
+        cf.CFDictionaryCreate.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(ctypes.c_void_p), ctypes.c_long,
+            ctypes.c_void_p, ctypes.c_void_p]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        ax.AXIsProcessTrustedWithOptions.restype = ctypes.c_bool
+        ax.AXIsProcessTrustedWithOptions.argtypes = [ctypes.c_void_p]
+        key = ctypes.c_void_p.in_dll(ax, "kAXTrustedCheckOptionPrompt")
+        val = ctypes.c_void_p.in_dll(cf, "kCFBooleanTrue")
+        keys = (ctypes.c_void_p * 1)(key)
+        vals = (ctypes.c_void_p * 1)(val)
+        # NULL callbacks are fine — key/value are constant globals, never freed.
+        opts = cf.CFDictionaryCreate(None, keys, vals, 1, None, None)
+        trusted = bool(ax.AXIsProcessTrustedWithOptions(opts))
+        if opts:
+            cf.CFRelease(opts)
+        return trusted
+    except Exception:
+        return _accessibility_trusted()
+
+
 def _lock_immediate() -> str | None:
     """Private login.framework lock — instant, no permission. May also sleep the
     display on some macOS versions (that's what the keystroke method avoids)."""

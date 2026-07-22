@@ -26,15 +26,15 @@ html,body{margin:0;padding:0;height:100%;overflow-x:hidden;}
 body{
   font-family:"IBM Plex Sans",system-ui,sans-serif;
   background:var(--bg); color:var(--text);
-  font-size:14px; line-height:1.43; letter-spacing:.16px;
+  font-size:13px; line-height:1.35; letter-spacing:.16px;
   -webkit-font-smoothing:antialiased;
 }
 .mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
 
 /* ── UI shell header ── */
 .header{
-  height:48px; display:flex; align-items:center; gap:12px;
-  padding:0 16px; background:var(--bg); border-bottom:1px solid var(--border-sub);
+  height:42px; display:flex; align-items:center; gap:12px;
+  padding:0 14px; background:var(--bg); border-bottom:1px solid var(--border-sub);
   position:sticky; top:0; z-index:5;
 }
 .header .mark{width:20px;height:20px;flex:0 0 auto;}
@@ -50,7 +50,7 @@ body{
 /* theme content-switcher */
 .themesw{display:flex; border:1px solid var(--border-strong);}
 .themesw button{background:transparent; color:var(--text-2); border:0;
-  border-right:1px solid var(--border-strong); padding:4px 12px; height:26px;
+  border-right:1px solid var(--border-strong); padding:3px 11px; height:24px;
   font-family:inherit; font-size:12px; letter-spacing:.16px; cursor:pointer;}
 .themesw button:last-child{border-right:0;}
 .themesw button.active{background:var(--primary); color:#fff;}
@@ -58,7 +58,7 @@ body{
 .themesw button:focus-visible{outline:2px solid var(--focus); outline-offset:-2px;}
 
 /* ── layout ── */
-.wrap{padding:16px; max-width:980px; margin:0 auto;}
+.wrap{padding:10px; max-width:980px; margin:0 auto;}
 .grid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1px; background:var(--border-sub);}
 .grid>.card{margin:0;}
 @media (max-width:680px){ .grid{grid-template-columns:1fr;} }
@@ -75,10 +75,10 @@ body{
 .banner.ok{border-left-color:var(--ok);}
 
 /* ── card ── */
-.card{background:var(--layer); padding:20px;}
-.card .chead{display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;}
-.card h2{font-size:16px; font-weight:600; margin:0; letter-spacing:0;}
-.card .sub{font-size:12px; color:var(--text-help); margin:-10px 0 16px;}
+.card{background:var(--layer); padding:12px 16px;}
+.card .chead{display:flex; align-items:center; justify-content:space-between; margin-bottom:7px;}
+.card h2{font-size:15px; font-weight:600; margin:0; letter-spacing:0;}
+.card .sub{font-size:11.5px; color:var(--text-help); margin:-2px 0 8px;}
 
 /* ── tag ── */
 .tag{
@@ -97,7 +97,7 @@ body{
 .btn{
   font-family:inherit; font-size:14px; letter-spacing:.16px; font-weight:400;
   border:1px solid transparent; border-radius:0; cursor:pointer;
-  min-height:48px; padding:13px 60px 13px 16px; text-align:left; position:relative;
+  min-height:38px; padding:8px 52px 8px 16px; text-align:left; position:relative;
   color:var(--on-color); background:var(--primary); transition:background .11s;
   -webkit-appearance:none; width:100%;
 }
@@ -114,63 +114,63 @@ body{
 .btn[disabled]{background:var(--layer2); color:var(--text-place); cursor:not-allowed;}
 
 /* ── meter (Carbon-ish) ── */
-.meter{margin:18px 0 4px;}
-.meter .top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
-.meter .lab{font-size:12px; color:var(--text-2); letter-spacing:.32px;}
-.meter .val{font-size:13px; color:var(--text);}
-.meter .track{height:6px; background:var(--layer2); overflow:hidden;}
+.meter{margin:8px 0 2px;}
+.meter .top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:3px;}
+.meter .lab{font-size:11.5px; color:var(--text-2); letter-spacing:.32px;}
+.meter .val{font-size:12.5px; color:var(--text);}
+.meter .track{height:5px; background:var(--layer2); overflow:hidden;}
 .meter .fill{height:100%; width:0%; background:var(--primary); transition:width .25s ease, background .2s;}
 .meter .fill.hot{background:var(--err);}
 .meter .fill.good{background:var(--ok);}
 
 /* ── field (Carbon text input) ── */
-.fields{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:18px;}
+.fields{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:7px 16px; margin-top:9px;}
 .f{display:flex; flex-direction:column;}
 .f.full{grid-column:1 / -1;}
-.f label{font-size:12px; color:var(--text-2); letter-spacing:.32px; margin-bottom:6px;}
+.f label{font-size:11px; color:var(--text-2); letter-spacing:.32px; margin-bottom:2px;}
 .f .inp{display:flex; align-items:center; background:var(--field); border-bottom:1px solid var(--border-strong);}
 .f input{
   flex:1; background:transparent; border:0; color:var(--text);
   font-family:"IBM Plex Sans",sans-serif; font-size:14px; letter-spacing:.16px;
-  height:40px; padding:0 12px 0 16px; min-width:0;
+  height:33px; padding:0 12px 0 16px; min-width:0;
   font-variant-numeric:tabular-nums;
 }
 .f input:focus{outline:none;}
 .f .inp:focus-within{outline:2px solid var(--primary); outline-offset:-2px;}
 .f .unit{font-size:13px; color:var(--text-help); padding:0 14px 0 0;}
 .f input:disabled{color:var(--text-place);}
-.f .help{font-size:11px; color:var(--text-help); margin-top:6px; letter-spacing:.32px;}
+.f .help{font-size:10px; color:var(--text-help); margin-top:2px; letter-spacing:.24px;}
 
 /* ── select (Carbon dropdown) ── */
 .f select{
   -webkit-appearance:none; appearance:none; width:100%;
   background:var(--field); color:var(--text); border:0; border-bottom:1px solid var(--border-strong);
-  height:40px; padding:0 40px 0 16px; font-family:inherit; font-size:14px; border-radius:0;
+  height:33px; padding:0 40px 0 16px; font-family:inherit; font-size:13px; border-radius:0;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path fill='%238d8d8d' d='M8 11L3 6h10z'/></svg>");
   background-repeat:no-repeat; background-position:right 12px center;
 }
 .f select:focus{outline:2px solid var(--primary); outline-offset:-2px;}
 
 /* ── toggle (Carbon) ── */
-.row{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:16px;}
-.toggle{display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none;}
+.row{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:9px;}
+.toggle{display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;}
 .toggle input{position:absolute; opacity:0; width:0; height:0;}
-.toggle .track{width:48px; height:24px; background:var(--border-strong); border-radius:12px; position:relative; transition:background .1s; flex:0 0 auto;}
-.toggle .track::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:var(--on-color); transition:transform .1s;}
+.toggle .track{width:40px; height:20px; background:var(--border-strong); border-radius:10px; position:relative; transition:background .1s; flex:0 0 auto;}
+.toggle .track::after{content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:var(--on-color); transition:transform .1s;}
 .toggle input:checked + .track{background:var(--primary);}
-.toggle input:checked + .track::after{transform:translateX(24px);}
+.toggle input:checked + .track::after{transform:translateX(20px);}
 .toggle input:focus-visible + .track{outline:2px solid var(--focus); outline-offset:2px;}
-.toggle .tlab{font-size:14px; color:var(--text);}
+.toggle .tlab{font-size:13px; color:var(--text);}
 
 /* ── footer bar ── */
 .footbar{display:flex; gap:1px; background:var(--border-sub);}
-.footbar .btn{flex:1; width:auto; min-height:56px; text-align:center; padding-left:16px; padding-right:16px;}
+.footbar .btn{flex:1; width:auto; min-height:40px; text-align:center; padding-left:16px; padding-right:16px;}
 
-.mutehint{font-size:12px; color:var(--text-help); margin-top:8px; letter-spacing:.16px;}
+.mutehint{font-size:11px; color:var(--text-help); margin-top:4px; letter-spacing:.16px;}
 a{color:var(--link);}
 
 /* toast notifications (Carbon) */
-#toasts{position:fixed; top:60px; right:16px; display:flex; flex-direction:column;
+#toasts{position:fixed; top:50px; right:16px; display:flex; flex-direction:column;
   gap:8px; z-index:100; width:320px; max-width:calc(100vw - 32px);}
 .toast{display:flex; align-items:flex-start; gap:10px; background:var(--layer2);
   color:var(--text); border-left:3px solid var(--info); padding:13px 14px;
@@ -241,7 +241,7 @@ a{color:var(--link);}
       <div class="chead"><h2>Motion alarm</h2><span id="m_tag" class="tag">—</span></div>
       <div class="sub">Sounds a siren if the Mac is physically moved.</div>
       <button id="m_btn" class="btn btn-primary" onclick="motionAction()">Arm</button>
-      <button id="m_dismiss" class="btn btn-danger" style="display:none; margin-top:8px;" onclick="post('dismissAlarm')">Dismiss alarm (stay armed)</button>
+      <button id="m_dismiss" class="btn btn-danger" style="display:none; margin-top:6px;" onclick="post('dismissAlarm')">Dismiss alarm (stay armed)</button>
       <div id="m_hint" class="mutehint"></div>
       <div class="meter">
         <div class="top"><span class="lab">MOVEMENT</span><span id="m_mg" class="val mono">—</span></div>
@@ -280,7 +280,7 @@ a{color:var(--link);}
         <div class="inp"><input id="f_heartbeat_s" data-key="heartbeat_s" inputmode="decimal"><span class="unit">s</span></div>
       </div>
     </div>
-    <div class="fields" style="margin-top:18px;">
+    <div class="fields" style="margin-top:9px;">
       <div class="f full">
         <label>Lock method</label>
         <select id="lock_method" onchange="post('setLockMethod',{method:this.value})" title="How the proximity lock locks the screen.">
