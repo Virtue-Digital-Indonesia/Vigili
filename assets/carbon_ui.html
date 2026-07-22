@@ -48,14 +48,15 @@ body{
 @keyframes blink{50%{opacity:.25;}}
 
 /* theme content-switcher */
-.themesw{display:flex; border:1px solid var(--border-strong);}
-.themesw button{background:transparent; color:var(--text-2); border:0;
-  border-right:1px solid var(--border-strong); padding:3px 11px; height:24px;
+.themesw{display:inline-flex;}
+.themesw button{background:transparent; color:var(--text-2);
+  border:1px solid var(--border-strong); margin-left:-1px; padding:3px 11px; height:26px; line-height:1;
   font-family:inherit; font-size:12px; letter-spacing:.16px; cursor:pointer;}
-.themesw button:last-child{border-right:0;}
-.themesw button.active{background:var(--primary); color:#fff;}
+.themesw button:first-child{margin-left:0;}
+.themesw button.active{background:var(--primary); color:#fff; border-color:var(--primary);
+  position:relative; z-index:1;}
 .themesw button:not(.active):hover{background:var(--layer2); color:var(--text);}
-.themesw button:focus-visible{outline:2px solid var(--focus); outline-offset:-2px;}
+.themesw button:focus-visible{outline:2px solid var(--focus); outline-offset:-2px; position:relative; z-index:2;}
 
 /* ── layout ── */
 .wrap{padding:10px; max-width:980px; margin:0 auto;}
@@ -165,6 +166,10 @@ body{
 /* ── footer bar ── */
 .footbar{display:flex; gap:1px; background:var(--border-sub);}
 .footbar .btn{flex:1; width:auto; min-height:40px; text-align:center; padding-left:16px; padding-right:16px;}
+/* Lock is an action, not an outline: fill solid like its neighbours (accent text),
+   so its box sits flush in the bar instead of reading as an inset border. */
+.footbar .btn.btn-tertiary{background:var(--layer2); border-color:transparent; color:var(--link);}
+.footbar .btn.btn-tertiary:hover{background:var(--border-strong); color:var(--link);}
 
 .mutehint{font-size:11px; color:var(--text-help); margin-top:4px; letter-spacing:.16px;}
 a{color:var(--link);}
@@ -271,7 +276,7 @@ a{color:var(--link);}
   </div>
 
   <!-- General -->
-  <section class="card" style="margin-top:1px;">
+  <section class="card" style="margin-top:12px;">
     <div class="chead"><h2>General</h2></div>
     <div class="row" style="margin-top:0;">
       <label class="toggle" title="When the screen locks, automatically arm the motion alarm; disarm when you unlock."><input id="link" type="checkbox" onchange="post('toggleLink')"><span class="track"></span><span class="tlab">Lock &rarr; arm motion</span></label>

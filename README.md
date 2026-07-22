@@ -32,11 +32,15 @@ physically moved while armed, using the built-in accelerometer.
 2. Open the `vigili` folder and **double-click `Install Vigili.command`**.
    - First time only: **right-click it ▸ Open ▸ Open** (it's not from the App
      Store, so macOS asks once).
-   - It sets up a private Python environment, builds the app + icon, and pops a
-     "Vigili is ready!" dialog. Takes ~1 minute.
-3. **Double-click `Vigili.app`.** Done — the control panel opens.
+   - It sets up a private Python environment and builds **`Vigili.app`** — a real,
+     self-contained macOS app (its own embedded Python inside; nothing else to
+     install). Takes ~1 minute.
+3. **Double-click `Vigili.app`.** Done — the control panel opens. You can drag it
+   to **/Applications** and delete the source folder; the app is standalone.
 
-> Needs Python 3 (macOS ships it, or run `xcode-select --install` once).
+> First launch asks for **Bluetooth** access once (that's the proximity lock).
+> *Building* needs **Python 3** (macOS ships it, or run `xcode-select --install`) —
+> but the finished app bundles its own, so it runs on any Apple-silicon Mac without it.
 
 ---
 
@@ -126,6 +130,8 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/python3 vigili.py             # window GUI (proximity)
 sudo -E ./.venv/bin/python3 vigili.py     # window GUI, both halves
 ./.venv/bin/python3 vigili.py --menubar   # menu-bar app instead of a window
+
+bash tools/build_app.sh                   # bundle a standalone Vigili.app -> ./Vigili.app
 ```
 
 The window is an **IBM Carbon** UI (IBM Plex, Blue 60, square controls) rendered
@@ -165,7 +171,7 @@ copy ride along inside the app for that helper to use — see `resource_base()` 
 ## Requirements
 - Apple-silicon Mac (proximity: any; **motion: M1 Pro/Max/Ultra or later**)
 - macOS 12+ (developed/verified on macOS 27)
-- Python 3
+- Python 3 — **to build** only; the finished `Vigili.app` embeds its own
 
 ## License
 MIT — see [LICENSE](LICENSE).

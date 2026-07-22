@@ -1081,7 +1081,7 @@ def run_window(cfg, want_motion, motion_reason):
     style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
              | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(0, 0, 900, 700), style, NSBackingStoreBuffered, False)
+        NSMakeRect(0, 0, 900, 648), style, NSBackingStoreBuffered, False)
     win.setTitle_("Vigili")
     win.setReleasedWhenClosed_(False)
     win.setDelegate_(bridge)
@@ -1094,7 +1094,7 @@ def run_window(cfg, want_motion, motion_reason):
     ucc.addScriptMessageHandler_name_(bridge, "vigili")
     conf.setUserContentController_(ucc)
     web = WKWebView.alloc().initWithFrame_configuration_(
-        NSMakeRect(0, 0, 900, 700), conf)
+        NSMakeRect(0, 0, 900, 648), conf)
     web.setNavigationDelegate_(bridge)
     web.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
     try:
